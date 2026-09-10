@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "node server/index.mjs",
+    "start": "node server/index.mjs",
+    "dev:all": "concurrently -k -n WEB,API -c blue,green \"vite\" \"node server/index.mjs\"",
+    "tts:download": "node scripts/download-tts.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -14,6 +18,9 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^10.0.5",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "vite": "^5.4.11"
   }
 }

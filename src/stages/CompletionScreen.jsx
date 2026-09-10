@@ -1,6 +1,12 @@
-import { fmtWeight } from '../lib/weights.js';
+import { fmtDateTime, fmtWeight } from '../lib/weights.js';
 
-export function CompletionScreen({ cart, onStartNew, onPrint }) {
+export function CompletionScreen({ cart, savedBill, saving, saveError, onStartNew, onPrint }) {
+  const batchLabel = savedBill
+    ? savedBill.batchNo
+    : saving
+      ? 'SAVING RECORD…'
+      : `WEIGH-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+
   return (
     <section className="stage">
       <div className="completion-wrap">
@@ -8,8 +14,16 @@ export function CompletionScreen({ cart, onStartNew, onPrint }) {
           <div className="completion-head">
             <div className="completion-title">WEIGHING COMPLETE</div>
             <div className="completion-sub">
-              Batch: WEIGH-{new Date().toISOString().slice(0, 10).replace(/-/g, '')}
+              Batch: {batchLabel}
+              {savedBill ? ` · Recorded ${fmtDateTime(savedBill.weighedAt)}` : ''}
             </div>
+            {(saving || saveError) && (
+              <div className={`save-state ${saveError ? 'save-error' : 'save-saved'}`}>
+                {saveError
+                  ? `Not stored: ${saveError}`
+                  : 'Storing this weighing in the records…'}
+              </div>
+            )}
           </div>
 
           <table className="data-table">
@@ -37,7 +51,10 @@ export function CompletionScreen({ cart, onStartNew, onPrint }) {
 
           <div className="completion-total">
             <span>Total Items: {cart.length}</span>
-            <span>All items successfully weighed.</span>
+            <span>
+              Total Weight:{' '}
+              <b>{fmtWeight(cart.reduce((sum, item) => sum + item.required, 0))}</b>
+            </span>
           </div>
         </div>
 

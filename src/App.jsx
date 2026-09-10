@@ -1,22 +1,75 @@
-import { useState } from 'react';
-import { AVAILABLE_ITEMS } from './lib/items.js';
-import { evaluateReading, parseWeight, round3 } from './lib/weights.js';
+import { useEffect, useState } from 'react';
+import { VOICE_LANGS } from './lib/items.js';
+import {
+  evaluateReading,
+  localIsoNow,
+  parseWeight,
+  round3,
+} from './lib/weights.js';
 import { useWeightSource } from './lib/weightSource.js';
-import { stopSpeaking } from './lib/tts.js';
+import { preloadAll, stopSpeaking } from './lib/tts.js';
+import { api } from './api.js';
 import { ItemSelection } from './stages/ItemSelection.jsx';
 import { WeighingTerminal } from './stages/WeighingTerminal.jsx';
 import { CompletionScreen } from './stages/CompletionScreen.jsx';
+import { ItemsScreen } from './screens/ItemsScreen.jsx';
+import { HistoryScreen } from './screens/HistoryScreen.jsx';
+import { ReportsScreen } from './screens/ReportsScreen.jsx';
+
+const SCREENS = [
+  { key: 'weighing', label: 'WEIGHING' },
+  { key: 'history', label: 'HISTORY' },
+  { key: 'reports', label: 'REPORTS' },
+  { key: 'items', label: 'ITEM MASTER' },
+];
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 export default function App() {
+  const [screen, setScreen] = useState('weighing');
   const [stage, setStage] = useState('select');
+  const [items, setItems] = useState([]);
+  const [itemsLoading, setItemsLoading] = useState(true);
+  const [itemsError, setItemsError] = useState('');
   const [cart, setCart] = useState([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [reqInput, setReqInput] = useState('');
   const [reqError, setReqError] = useState('');
+  const [voiceLang, setVoiceLang] = useState('en');
+  const [savedBill, setSavedBill] = useState(null);
+  const [billSaving, setBillSaving] = useState(false);
+  const [billError, setBillError] = useState('');
   const { raw, setRaw, getReading } = useWeightSource();
+
+  async function loadItems(silent = false) {
+    if (!silent) setItemsLoading(true);
+    setItemsError('');
+    try {
+      setItems(await api.getItems());
+    } catch (err) {
+      setItemsError(err.message);
+    } finally {
+      setItemsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadItems();
+  }, []);
+
+  useEffect(() => {
+    if (items.length > 0) preloadAll(items, VOICE_LANGS);
+  }, [items]);
+
+  useEffect(() => {
+    if (selectedItemId != null && !items.some((item) => item.id === selectedItemId)) {
+      setSelectedItemId(null);
+      setReqInput('');
+    }
+  }, [items, selectedItemId]);
+
+  const selectedItem = items.find((item) => item.id === selectedItemId) || null;
 
   const activeItem = stage !== 'select' ? cart[activeIndex] : null;
   const status = activeItem
@@ -35,10 +88,18 @@ export default function App() {
       setReqError('Enter a valid weight above zero, e.g. 2.000');
       return;
     }
-    const item = AVAILABLE_ITEMS.find((candidate) => candidate.id === selectedItemId);
+    if (!selectedItem) return;
     setCart((prev) => [
       ...prev,
-      { uid: uid(), name: item.name, required: round3(required), status: 'pending' },
+      {
+        uid: uid(),
+        id: selectedItem.id,
+        slug: selectedItem.slug,
+        name: selectedItem.name,
+        names: selectedItem.names,
+        required: round3(required),
+        status: 'pending',
+      },
     ]);
     setReqInput('');
     setReqError('');
@@ -67,8 +128,31 @@ export default function App() {
       setActiveIndex(activeIndex + 1);
       setRaw('');
     } else {
-      setStage('complete');
+      completeWeighing();
     }
+  }
+
+  function completeWeighing() {
+    const lines = cart.map((item) => ({
+      itemId: item.id,
+      itemName: item.name,
+      requiredWeight: item.required,
+    }));
+    const totalWeight = round3(cart.reduce((sum, item) => sum + item.required, 0));
+    setStage('complete');
+    setSavedBill(null);
+    setBillError('');
+    setBillSaving(true);
+    api
+      .saveWeighing({ weighedAt: localIsoNow(), lines, totalWeight })
+      .then((bill) => {
+        setSavedBill(bill);
+        setBillSaving(false);
+      })
+      .catch((err) => {
+        setBillError(err.message);
+        setBillSaving(false);
+      });
   }
 
   function startNewWeighing() {
@@ -79,6 +163,8 @@ export default function App() {
     setSelectedItemId(null);
     setReqInput('');
     setReqError('');
+    setSavedBill(null);
+    setBillError('');
     setStage('select');
   }
 
@@ -93,48 +179,108 @@ export default function App() {
           <span className="brand-glyph">⚖</span>
           <span className="brand-name">WEIGHING SYSTEM</span>
         </div>
-        <span className="mode-badge">
-          SIMULATION MODE
-          <span className="mode-dot" />
-        </span>
+        <div className="header-controls">
+          <label className="voice-label" htmlFor="voice-lang">
+            Speak
+          </label>
+          <select
+            id="voice-lang"
+            className="lang-select"
+            value={voiceLang}
+            onChange={(event) => setVoiceLang(event.target.value)}
+          >
+            {VOICE_LANGS.map((lang) => (
+              <option key={lang.code} value={lang.code}>
+                {lang.label}
+              </option>
+            ))}
+          </select>
+          <span className="mode-badge">
+            SIMULATION MODE
+            <span className="mode-dot" />
+          </span>
+        </div>
       </header>
 
+      <nav className="nav-tabs">
+        {SCREENS.map((entry) => (
+          <button
+            key={entry.key}
+            type="button"
+            className={`nav-tab${screen === entry.key ? ' active' : ''}`}
+            onClick={() => setScreen(entry.key)}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </nav>
+
       <main>
-        {stage === 'select' && (
-          <ItemSelection
-            items={AVAILABLE_ITEMS}
-            cart={cart}
-            selectedItemId={selectedItemId}
-            reqInput={reqInput}
-            reqError={reqError}
-            onSelectItem={selectItem}
-            onReqInput={setReqInput}
-            onAddToCart={addToCart}
-            onRemove={removeFromCart}
-            onStart={beginWeighing}
+        {itemsError && screen === 'weighing' && (
+          <div className="error-banner">
+            Item master unavailable: {itemsError}{' '}
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => loadItems()}>
+              RETRY
+            </button>
+          </div>
+        )}
+
+        {screen === 'weighing' && (
+          <>
+            {stage === 'select' && (
+              <ItemSelection
+                items={items}
+                itemsLoading={itemsLoading}
+                cart={cart}
+                selectedItemId={selectedItemId}
+                reqInput={reqInput}
+                reqError={reqError}
+                onSelectItem={selectItem}
+                onReqInput={setReqInput}
+                onAddToCart={addToCart}
+                onRemove={removeFromCart}
+                onStart={beginWeighing}
+              />
+            )}
+
+            {stage === 'weighing' && (
+              <WeighingTerminal
+                cart={cart}
+                activeIndex={activeIndex}
+                activeItem={activeItem}
+                status={status}
+                reading={raw}
+                nextEnabled={status.correct}
+                voiceLang={voiceLang}
+                onReading={setRaw}
+                onNext={handleNext}
+              />
+            )}
+
+            {stage === 'complete' && (
+              <CompletionScreen
+                cart={cart}
+                savedBill={savedBill}
+                saving={billSaving}
+                saveError={billError}
+                onStartNew={startNewWeighing}
+                onPrint={printReport}
+              />
+            )}
+          </>
+        )}
+
+        {screen === 'items' && (
+          <ItemsScreen
+            items={items}
+            itemsError={itemsError}
+            onItemsChanged={() => loadItems(true)}
           />
         )}
 
-        {stage === 'weighing' && (
-          <WeighingTerminal
-            cart={cart}
-            activeIndex={activeIndex}
-            activeItem={activeItem}
-            status={status}
-            reading={raw}
-            nextEnabled={status.correct}
-            onReading={setRaw}
-            onNext={handleNext}
-          />
-        )}
+        {screen === 'history' && <HistoryScreen />}
 
-        {stage === 'complete' && (
-          <CompletionScreen
-            cart={cart}
-            onStartNew={startNewWeighing}
-            onPrint={printReport}
-          />
-        )}
+        {screen === 'reports' && <ReportsScreen />}
       </main>
     </div>
   );

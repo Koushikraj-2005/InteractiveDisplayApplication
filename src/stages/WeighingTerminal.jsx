@@ -1,11 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { fmtSignedDiff, fmtWeight, parseWeight } from '../lib/weights.js';
-import { speak } from '../lib/tts.js';
+import { speakItem, voiceEngine } from '../lib/tts.js';
+import { localizedName, VOICE_LANGS } from '../lib/items.js';
 import { weightSource } from '../lib/weightSource.js';
 import { Scale } from '../components/Scale.jsx';
 
 const SOURCE_LABEL =
   weightSource.mode === 'manual' ? 'MANUAL ENTRY (SIMULATED)' : 'DEVICE READING (RS232)';
+
+const voiceLabel = (code) => {
+  const lang = VOICE_LANGS.find((candidate) => candidate.code === code);
+  return lang ? lang.label.split(' / ')[0] : code.toUpperCase();
+};
 
 export function WeighingTerminal({
   cart,
@@ -14,6 +20,7 @@ export function WeighingTerminal({
   status,
   reading,
   nextEnabled,
+  voiceLang,
   onReading,
   onNext,
 }) {
@@ -22,9 +29,9 @@ export function WeighingTerminal({
 
   useEffect(() => {
     if (!activeItem) return;
-    speak(activeItem.name);
+    speakItem(activeItem, voiceLang);
     inputRef.current?.focus();
-  }, [activeItem]);
+  }, [activeItem, voiceLang]);
 
   if (!activeItem) return null;
 
@@ -49,6 +56,9 @@ export function WeighingTerminal({
             Status: <b className="b-ready">READY</b>
           </span>
           <span className="terminal-item terminal-source">{SOURCE_LABEL}</span>
+          <span className="terminal-item terminal-source">
+            Voice: {voiceLabel(voiceLang)} · ENGINE {voiceEngine(voiceLang)}
+          </span>
         </span>
       </div>
 
@@ -65,7 +75,10 @@ export function WeighingTerminal({
             {cart.map((item, index) => (
               <div key={item.uid} className={`queue-row ${item.status}`}>
                 <span className="num">{String(index + 1).padStart(2, '0')}</span>
-                <span>{item.name}</span>
+                <span className="queue-item">
+                  <span className="queue-item-en">{item.name}</span>
+                  <span className="queue-item-local">{localizedName(item, voiceLang)}</span>
+                </span>
                 <span className="num">{fmtWeight(item.required)}</span>
                 <span className={`queue-status ${item.status}`}>
                   {item.status === 'completed' ? '✓ COMPLETE' : item.status.toUpperCase()}
@@ -79,12 +92,13 @@ export function WeighingTerminal({
           <div className="current-item">
             <div className="current-item-label">CURRENT ITEM</div>
             <div className="current-item-name">{activeItem.name.toUpperCase()}</div>
+            <div className="current-item-local">{localizedName(activeItem, voiceLang)}</div>
             <div className="current-item-required">
               Required Weight: {fmtWeight(activeItem.required)}
               <button
                 type="button"
                 className="speaker-btn"
-                onClick={() => speak(activeItem.name)}
+                onClick={() => speakItem(activeItem, voiceLang)}
                 aria-label={`Replay item name ${activeItem.name}`}
                 title="Replay item name"
               >

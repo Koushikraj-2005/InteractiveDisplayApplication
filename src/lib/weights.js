@@ -15,6 +15,18 @@ export function round3(value) {
   return Math.round(value * 1000) / 1000;
 }
 
+const pad2 = (n) => String(n).padStart(2, '0');
+
+export function localIsoNow() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+export function fmtDateTime(iso) {
+  if (!iso) return '—';
+  return String(iso).replace('T', ' ');
+}
+
 export function parseWeight(raw) {
   if (raw == null) return null;
   const text = String(raw).trim();

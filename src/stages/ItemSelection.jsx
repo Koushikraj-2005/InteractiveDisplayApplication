@@ -2,6 +2,7 @@ import { fmtWeight } from '../lib/weights.js';
 
 export function ItemSelection({
   items,
+  itemsLoading,
   cart,
   selectedItemId,
   reqInput,
@@ -21,17 +22,23 @@ export function ItemSelection({
           <div className="panel-title">ITEM MASTER</div>
           <div className="panel-sub">Select items to be weighed</div>
           <div className="item-list">
-            {items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`item-row${selectedItemId === item.id ? ' selected' : ''}`}
-                onClick={() => onSelectItem(item.id)}
-              >
-                <span className="item-code">{item.code}</span>
-                <span className="item-name">{item.name}</span>
-              </button>
-            ))}
+            {itemsLoading ? (
+              <div className="panel-placeholder">Loading items…</div>
+            ) : items.length === 0 ? (
+              <div className="panel-placeholder">No items in the master. Add items under ITEM MASTER.</div>
+            ) : (
+              items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`item-row${selectedItemId === item.id ? ' selected' : ''}`}
+                  onClick={() => onSelectItem(item.id)}
+                >
+                  <span className="item-code">{item.code}</span>
+                  <span className="item-name">{item.name}</span>
+                </button>
+              ))
+            )}
           </div>
         </div>
 
