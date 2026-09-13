@@ -224,6 +224,38 @@ export function ReportsScreen() {
               </table>
             )}
           </div>
+
+          <div className="panel">
+            <div className="panel-title">
+              RECIPE BREAKDOWN — {MONTH_NAMES[selMonth - 1].toUpperCase()} {selYear}
+            </div>
+            {monthlyLoading ? (
+              <div className="panel-placeholder">Loading…</div>
+            ) : monthlyError ? (
+              <div className="panel-placeholder error-text">{monthlyError}</div>
+            ) : monthly?.perRecipe?.length === 0 ? (
+              <div className="panel-placeholder">No recipe-based weighings this month.</div>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Recipe</th>
+                    <th className="text-right">Bills</th>
+                    <th className="text-right">Total Weight</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthly.perRecipe.map((entry) => (
+                    <tr key={entry.recipeName}>
+                      <td className="item-name">{entry.recipeName}</td>
+                      <td className="num text-right">{entry.bills}</td>
+                      <td className="num text-right">{fmtWeight(entry.totalKg)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       )}
 

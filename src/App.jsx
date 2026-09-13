@@ -15,9 +15,11 @@ import { CompletionScreen } from './stages/CompletionScreen.jsx';
 import { ItemsScreen } from './screens/ItemsScreen.jsx';
 import { HistoryScreen } from './screens/HistoryScreen.jsx';
 import { ReportsScreen } from './screens/ReportsScreen.jsx';
+import { RecipesScreen } from './screens/RecipesScreen.jsx';
 
 const SCREENS = [
   { key: 'weighing', label: 'WEIGHING' },
+  { key: 'recipes', label: 'RECIPES' },
   { key: 'history', label: 'HISTORY' },
   { key: 'reports', label: 'REPORTS' },
   { key: 'items', label: 'ITEM MASTER' },
@@ -31,9 +33,12 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsError, setItemsError] = useState('');
+  const [recipes, setRecipes] = useState([]);
+  const [recipesError, setRecipesError] = useState('');
   const [cart, setCart] = useState([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedItemId, setSelectedItemId] = useState(null);
+  const [selectedRecipeId, setSelectedRecipeId] = useState(null);
   const [reqInput, setReqInput] = useState('');
   const [reqError, setReqError] = useState('');
   const [voiceLang, setVoiceLang] = useState('en');
@@ -54,8 +59,18 @@ export default function App() {
     }
   }
 
+  async function loadRecipes() {
+    setRecipesError('');
+    try {
+      setRecipes(await api.getRecipes());
+    } catch (err) {
+      setRecipesError(err.message);
+    }
+  }
+
   useEffect(() => {
     loadItems();
+    loadRecipes();
   }, []);
 
   useEffect(() => {
@@ -78,8 +93,39 @@ export default function App() {
 
   function selectItem(id) {
     setSelectedItemId(id);
+    setSelectedRecipeId(null);
     setReqInput('');
     setReqError('');
+  }
+
+  function selectRecipe(id) {
+    setSelectedRecipeId(id);
+    setSelectedItemId(null);
+    setReqInput('');
+    setReqError('');
+  }
+
+  function loadRecipe(recipe) {
+    const lines = recipe.lines
+      .map((line) => {
+        const item = items.find((candidate) => candidate.id === line.itemId);
+        return {
+          uid: uid(),
+          id: line.itemId,
+          slug: item ? item.slug : null,
+          name: item ? item.name : line.itemName,
+          names: item ? item.names : { en: line.itemName, hi: '', bn: '', ta: '' },
+          required: round3(line.requiredWeight),
+          status: 'pending',
+          recipeId: recipe.id,
+          recipeName: recipe.name,
+        };
+      })
+      .filter(Boolean);
+    if (lines.length === 0) return;
+    setCart(lines);
+    setSelectedRecipeId(null);
+    stopSpeaking();
   }
 
   function addToCart() {
@@ -139,12 +185,16 @@ export default function App() {
       requiredWeight: item.required,
     }));
     const totalWeight = round3(cart.reduce((sum, item) => sum + item.required, 0));
+    const recipeNames = new Set(
+      cart.map((item) => item.recipeName).filter((name) => Boolean(name)),
+    );
+    const recipeName = recipeNames.size === 1 ? [...recipeNames][0] : null;
     setStage('complete');
     setSavedBill(null);
     setBillError('');
     setBillSaving(true);
     api
-      .saveWeighing({ weighedAt: localIsoNow(), lines, totalWeight })
+      .saveWeighing({ weighedAt: localIsoNow(), lines, totalWeight, recipeName })
       .then((bill) => {
         setSavedBill(bill);
         setBillSaving(false);
@@ -231,15 +281,19 @@ export default function App() {
               <ItemSelection
                 items={items}
                 itemsLoading={itemsLoading}
+                recipes={recipes}
                 cart={cart}
                 selectedItemId={selectedItemId}
+                selectedRecipeId={selectedRecipeId}
                 reqInput={reqInput}
                 reqError={reqError}
                 onSelectItem={selectItem}
+                onSelectRecipe={selectRecipe}
                 onReqInput={setReqInput}
                 onAddToCart={addToCart}
                 onRemove={removeFromCart}
                 onStart={beginWeighing}
+                onLoadRecipe={loadRecipe}
               />
             )}
 
@@ -274,7 +328,18 @@ export default function App() {
           <ItemsScreen
             items={items}
             itemsError={itemsError}
-            onItemsChanged={() => loadItems(true)}
+            onItemsChanged={() => {
+              loadItems();
+              loadRecipes();
+            }}
+          />
+        )}
+
+        {screen === 'recipes' && (
+          <RecipesScreen
+            items={items}
+            recipes={recipes}
+            onRecipesChanged={loadRecipes}
           />
         )}
 

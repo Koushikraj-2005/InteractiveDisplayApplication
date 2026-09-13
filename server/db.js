@@ -42,7 +42,35 @@ export function initDb() {
 
     CREATE INDEX IF NOT EXISTS idx_weighings_weighed_at ON weighings(weighed_at);
     CREATE INDEX IF NOT EXISTS idx_lines_weighing ON weighing_lines(weighing_id);
+
+    CREATE TABLE IF NOT EXISTS recipes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      item_count INTEGER NOT NULL DEFAULT 0,
+      total_weight REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
+    CREATE TABLE IF NOT EXISTS recipe_lines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      recipe_id INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+      item_id INTEGER,
+      item_name TEXT NOT NULL,
+      required_weight REAL NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_recipe_lines_recipe ON recipe_lines(recipe_id);
   `);
+
+  const weighingCols = db
+    .prepare('PRAGMA table_info(weighings)')
+    .all()
+    .map((col) => col.name);
+  if (!weighingCols.includes('recipe_name')) {
+    db.exec('ALTER TABLE weighings ADD COLUMN recipe_name TEXT');
+    console.log('Migrated weighings: added recipe_name column');
+  }
 
   const count = db.prepare('SELECT COUNT(*) AS n FROM items').get().n;
   if (count === 0) {

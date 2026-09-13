@@ -63,6 +63,13 @@ export function HistoryScreen() {
               >
                 <span className="num batch-no">{bill.batchNo}</span>
                 <span className="history-date">{fmtDateTime(bill.weighedAt)}</span>
+                <span className="history-recipe">
+                  {bill.recipeName ? (
+                    <span className="recipe-name-chip">{bill.recipeName}</span>
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
+                </span>
                 <span className="num history-items">{bill.itemCount} items</span>
                 <span className="num history-weight">{fmtWeight(bill.totalWeight)}</span>
                 <span className="history-expand">{opened ? '−' : '+'}</span>
@@ -71,7 +78,13 @@ export function HistoryScreen() {
                 <div className="history-detail">
                   {detailError && <div className="error-text">{detailError}</div>}
                   {detail && (
-                    <table className="data-table">
+                    <>
+                      {detail.recipeName && (
+                        <div className="history-detail-recipe">
+                          Recipe: <b>{detail.recipeName}</b>
+                        </div>
+                      )}
+                      <table className="data-table">
                       <thead>
                         <tr>
                           <th className="col-no">No.</th>
@@ -93,6 +106,7 @@ export function HistoryScreen() {
                         ))}
                       </tbody>
                     </table>
+                    </>
                   )}
                 </div>
               )}
