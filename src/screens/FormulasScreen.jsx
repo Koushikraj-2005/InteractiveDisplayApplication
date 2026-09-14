@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api } from '../api.js';
 import { fmtWeight } from '../lib/weights.js';
 
-export function RecipesScreen({ items, recipes, onRecipesChanged }) {
+export function FormulasScreen({ items, formulas, onFormulasChanged }) {
   const [editingId, setEditingId] = useState(null);
   const [name, setName] = useState('');
   const [lines, setLines] = useState([]);
@@ -23,11 +23,11 @@ export function RecipesScreen({ items, recipes, onRecipesChanged }) {
     setError('');
   }
 
-  function startEdit(recipe) {
-    setEditingId(recipe.id);
-    setName(recipe.name);
+  function startEdit(formula) {
+    setEditingId(formula.id);
+    setName(formula.name);
     setLines(
-      recipe.lines.map((line) => ({
+      formula.lines.map((line) => ({
         itemId: line.itemId,
         itemName: line.itemName,
         requiredWeight: line.requiredWeight,
@@ -62,13 +62,13 @@ export function RecipesScreen({ items, recipes, onRecipesChanged }) {
     setLines((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function saveRecipe() {
+  async function saveFormula() {
     if (!name.trim()) {
-      setError('Recipe name is required');
+      setError('Formula name is required');
       return;
     }
     if (lines.length === 0) {
-      setError('Add at least one ingredient to the recipe');
+      setError('Add at least one ingredient to the formula');
       return;
     }
     setSaving(true);
@@ -79,12 +79,12 @@ export function RecipesScreen({ items, recipes, onRecipesChanged }) {
     };
     try {
       if (editingId != null) {
-        await api.updateRecipe(editingId, payload);
+        await api.updateFormula(editingId, payload);
       } else {
-        await api.createRecipe(payload);
+        await api.createFormula(payload);
       }
       resetForm();
-      onRecipesChanged();
+      onFormulasChanged();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -92,19 +92,19 @@ export function RecipesScreen({ items, recipes, onRecipesChanged }) {
     }
   }
 
-  async function handleDelete(recipe) {
-    if (confirmingId !== recipe.id) {
-      setConfirmingId(recipe.id);
+  async function handleDelete(formula) {
+    if (confirmingId !== formula.id) {
+      setConfirmingId(formula.id);
       window.setTimeout(() => {
-        setConfirmingId((current) => (current === recipe.id ? null : current));
+        setConfirmingId((current) => (current === formula.id ? null : current));
       }, 3000);
       return;
     }
     setConfirmingId(null);
     try {
-      await api.deleteRecipe(recipe.id);
-      if (editingId === recipe.id) resetForm();
-      onRecipesChanged();
+      await api.deleteFormula(formula.id);
+      if (editingId === formula.id) resetForm();
+      onFormulasChanged();
     } catch (err) {
       setError(err.message);
     }
@@ -115,11 +115,11 @@ export function RecipesScreen({ items, recipes, onRecipesChanged }) {
   return (
     <section className="stage">
       <div className="screen-title">
-        {editingId != null ? `EDIT RECIPE` : 'RECIPES'}
+        {editingId != null ? `EDIT FORMULA` : 'FORMULAS'}
       </div>
       <div className="screen-sub">
-        A recipe is a pre-set combination of ingredients with their exact weighing targets.
-        Load a recipe at the weighing terminal to start weighing it immediately.
+        A formula is a pre-set combination of ingredients with their exact weighing targets.
+        Load a formula at the weighing terminal to start weighing it immediately.
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -127,11 +127,11 @@ export function RecipesScreen({ items, recipes, onRecipesChanged }) {
       <div className="items-layout">
         <div className="panel items-form-panel">
           <div className="panel-title">
-            {editingId != null ? 'EDITING RECIPE' : 'ADD RECIPE'}
+            {editingId != null ? 'EDITING FORMULA' : 'ADD FORMULA'}
           </div>
           <div className="items-form">
             <div className="form-field">
-              <div className="field-label">Recipe Name *</div>
+              <div className="field-label">Formula Name *</div>
               <input
                 className="text-input"
                 type="text"
@@ -179,13 +179,13 @@ export function RecipesScreen({ items, recipes, onRecipesChanged }) {
             </div>
 
             {lines.length === 0 ? (
-              <div className="panel-placeholder">No ingredients in this recipe yet.</div>
+              <div className="panel-placeholder">No ingredients in this formula yet.</div>
             ) : (
-              <div className="recipe-builder-list">
+              <div className="formula-builder-list">
                 {lines.map((line, index) => (
-                  <div key={`${line.itemId}-${index}`} className="recipe-builder-row">
-                    <span className="recipe-builder-name">{line.itemName}</span>
-                    <span className="num recipe-builder-weight">{fmtWeight(line.requiredWeight)}</span>
+                  <div key={`${line.itemId}-${index}`} className="formula-builder-row">
+                    <span className="formula-builder-name">{line.itemName}</span>
+                    <span className="num formula-builder-weight">{fmtWeight(line.requiredWeight)}</span>
                     <button
                       type="button"
                       className="remove-btn"
@@ -195,21 +195,21 @@ export function RecipesScreen({ items, recipes, onRecipesChanged }) {
                     </button>
                   </div>
                 ))}
-                <div className="recipe-builder-total">
+                <div className="formula-builder-total">
                   <span>Ingredients: {lines.length}</span>
                   <span className="num">Total: {fmtWeight(totalWeight)}</span>
                 </div>
               </div>
             )}
 
-            <div className="recipe-form-actions">
+            <div className="formula-form-actions">
               <button
                 type="button"
                 className="btn btn-primary btn-block"
                 disabled={saving}
-                onClick={saveRecipe}
+                onClick={saveFormula}
               >
-                {saving ? 'SAVING…' : editingId != null ? 'SAVE CHANGES' : 'CREATE RECIPE'}
+                {saving ? 'SAVING…' : editingId != null ? 'SAVE CHANGES' : 'CREATE FORMULA'}
               </button>
               {editingId != null && (
                 <button type="button" className="btn btn-secondary btn-block" onClick={resetForm}>
@@ -221,52 +221,52 @@ export function RecipesScreen({ items, recipes, onRecipesChanged }) {
         </div>
 
         <div className="panel items-list-panel">
-          <div className="panel-title">RECIPE CATALOG ({recipes.length})</div>
-          {recipes.length === 0 ? (
+          <div className="panel-title">FORMULA CATALOG ({formulas.length})</div>
+          {formulas.length === 0 ? (
             <div className="panel-placeholder">
-              No recipes yet. Create one with the form — e.g. Tea with Milk, Sugar, Tea powder.
+              No formulas yet. Create one with the form — e.g. Tea with Milk, Sugar, Tea powder.
             </div>
           ) : (
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Recipe</th>
+                    <th>Formula</th>
                     <th>Ingredients</th>
                     <th className="text-right">Total Weight</th>
                     <th className="col-x" />
                   </tr>
                 </thead>
                 <tbody>
-                  {recipes.map((recipe) => (
-                    <tr key={recipe.id}>
+                  {formulas.map((formula) => (
+                    <tr key={formula.id}>
                       <td>
-                        <div className="recipe-name">{recipe.name}</div>
-                        <div className="recipe-lines">
-                          {recipe.lines.map((line) => (
-                            <span key={line.id} className="recipe-line-chip">
+                        <div className="formula-name">{formula.name}</div>
+                        <div className="formula-lines">
+                          {formula.lines.map((line) => (
+                            <span key={line.id} className="formula-line-chip">
                               {line.itemName} {fmtWeight(line.requiredWeight)}
                             </span>
                           ))}
                         </div>
                       </td>
-                      <td className="num">{recipe.itemCount}</td>
-                      <td className="num text-right">{fmtWeight(recipe.totalWeight)}</td>
+                      <td data-label="Ingredients" className="num">{formula.itemCount}</td>
+                      <td data-label="Total Weight" className="num text-right">{fmtWeight(formula.totalWeight)}</td>
                       <td className="col-x">
-                        <div className="recipe-actions">
+                        <div className="formula-actions">
                           <button
                             type="button"
                             className="delete-btn"
-                            onClick={() => startEdit(recipe)}
+                            onClick={() => startEdit(formula)}
                           >
                             EDIT
                           </button>
                           <button
                             type="button"
-                            className={`delete-btn${confirmingId === recipe.id ? ' confirming' : ''}`}
-                            onClick={() => handleDelete(recipe)}
+                            className={`delete-btn${confirmingId === formula.id ? ' confirming' : ''}`}
+                            onClick={() => handleDelete(formula)}
                           >
-                            {confirmingId === recipe.id ? 'CONFIRM?' : 'DELETE'}
+                            {confirmingId === formula.id ? 'CONFIRM?' : 'DELETE'}
                           </button>
                         </div>
                       </td>

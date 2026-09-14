@@ -15,11 +15,11 @@ import { CompletionScreen } from './stages/CompletionScreen.jsx';
 import { ItemsScreen } from './screens/ItemsScreen.jsx';
 import { HistoryScreen } from './screens/HistoryScreen.jsx';
 import { ReportsScreen } from './screens/ReportsScreen.jsx';
-import { RecipesScreen } from './screens/RecipesScreen.jsx';
+import { FormulasScreen } from './screens/FormulasScreen.jsx';
 
 const SCREENS = [
   { key: 'weighing', label: 'WEIGHING' },
-  { key: 'recipes', label: 'RECIPES' },
+  { key: 'formulas', label: 'FORMULAS' },
   { key: 'history', label: 'HISTORY' },
   { key: 'reports', label: 'REPORTS' },
   { key: 'items', label: 'ITEM MASTER' },
@@ -33,12 +33,12 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsError, setItemsError] = useState('');
-  const [recipes, setRecipes] = useState([]);
-  const [recipesError, setRecipesError] = useState('');
+  const [formulas, setFormulas] = useState([]);
+  const [formulasError, setFormulasError] = useState('');
   const [cart, setCart] = useState([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedItemId, setSelectedItemId] = useState(null);
-  const [selectedRecipeId, setSelectedRecipeId] = useState(null);
+  const [selectedFormulaId, setSelectedFormulaId] = useState(null);
   const [reqInput, setReqInput] = useState('');
   const [reqError, setReqError] = useState('');
   const [voiceLang, setVoiceLang] = useState('en');
@@ -51,7 +51,8 @@ export default function App() {
     if (!silent) setItemsLoading(true);
     setItemsError('');
     try {
-      setItems(await api.getItems());
+      const list = await api.getItems();
+      setItems(Array.isArray(list) ? list : []);
     } catch (err) {
       setItemsError(err.message);
     } finally {
@@ -59,18 +60,19 @@ export default function App() {
     }
   }
 
-  async function loadRecipes() {
-    setRecipesError('');
+  async function loadFormulas() {
+    setFormulasError('');
     try {
-      setRecipes(await api.getRecipes());
+      const list = await api.getFormulas();
+      setFormulas(Array.isArray(list) ? list : []);
     } catch (err) {
-      setRecipesError(err.message);
+      setFormulasError(err.message);
     }
   }
 
   useEffect(() => {
     loadItems();
-    loadRecipes();
+    loadFormulas();
   }, []);
 
   useEffect(() => {
@@ -93,20 +95,20 @@ export default function App() {
 
   function selectItem(id) {
     setSelectedItemId(id);
-    setSelectedRecipeId(null);
+    setSelectedFormulaId(null);
     setReqInput('');
     setReqError('');
   }
 
-  function selectRecipe(id) {
-    setSelectedRecipeId(id);
+  function selectFormula(id) {
+    setSelectedFormulaId(id);
     setSelectedItemId(null);
     setReqInput('');
     setReqError('');
   }
 
-  function loadRecipe(recipe) {
-    const lines = recipe.lines
+  function loadFormula(formula) {
+    const lines = formula.lines
       .map((line) => {
         const item = items.find((candidate) => candidate.id === line.itemId);
         return {
@@ -117,14 +119,14 @@ export default function App() {
           names: item ? item.names : { en: line.itemName, hi: '', bn: '', ta: '' },
           required: round3(line.requiredWeight),
           status: 'pending',
-          recipeId: recipe.id,
-          recipeName: recipe.name,
+          formulaId: formula.id,
+          formulaName: formula.name,
         };
       })
       .filter(Boolean);
     if (lines.length === 0) return;
     setCart(lines);
-    setSelectedRecipeId(null);
+    setSelectedFormulaId(null);
     stopSpeaking();
   }
 
@@ -185,16 +187,16 @@ export default function App() {
       requiredWeight: item.required,
     }));
     const totalWeight = round3(cart.reduce((sum, item) => sum + item.required, 0));
-    const recipeNames = new Set(
-      cart.map((item) => item.recipeName).filter((name) => Boolean(name)),
+    const formulaNames = new Set(
+      cart.map((item) => item.formulaName).filter((name) => Boolean(name)),
     );
-    const recipeName = recipeNames.size === 1 ? [...recipeNames][0] : null;
+    const formulaName = formulaNames.size === 1 ? [...formulaNames][0] : null;
     setStage('complete');
     setSavedBill(null);
     setBillError('');
     setBillSaving(true);
     api
-      .saveWeighing({ weighedAt: localIsoNow(), lines, totalWeight, recipeName })
+      .saveWeighing({ weighedAt: localIsoNow(), lines, totalWeight, formulaName })
       .then((bill) => {
         setSavedBill(bill);
         setBillSaving(false);
@@ -227,7 +229,7 @@ export default function App() {
       <header className="app-header">
         <div className="brand">
           <span className="brand-glyph">⚖</span>
-          <span className="brand-name">WEIGHING SYSTEM</span>
+          <span className="brand-name">NAVEEN FARMS</span>
         </div>
         <div className="header-controls">
           <label className="voice-label" htmlFor="voice-lang">
@@ -281,19 +283,19 @@ export default function App() {
               <ItemSelection
                 items={items}
                 itemsLoading={itemsLoading}
-                recipes={recipes}
+                formulas={formulas}
                 cart={cart}
                 selectedItemId={selectedItemId}
-                selectedRecipeId={selectedRecipeId}
+                selectedFormulaId={selectedFormulaId}
                 reqInput={reqInput}
                 reqError={reqError}
                 onSelectItem={selectItem}
-                onSelectRecipe={selectRecipe}
+                onSelectFormula={selectFormula}
                 onReqInput={setReqInput}
                 onAddToCart={addToCart}
                 onRemove={removeFromCart}
                 onStart={beginWeighing}
-                onLoadRecipe={loadRecipe}
+                onLoadFormula={loadFormula}
               />
             )}
 
@@ -330,16 +332,16 @@ export default function App() {
             itemsError={itemsError}
             onItemsChanged={() => {
               loadItems();
-              loadRecipes();
+              loadFormulas();
             }}
           />
         )}
 
-        {screen === 'recipes' && (
-          <RecipesScreen
+        {screen === 'formulas' && (
+          <FormulasScreen
             items={items}
-            recipes={recipes}
-            onRecipesChanged={loadRecipes}
+            formulas={formulas}
+            onFormulasChanged={loadFormulas}
           />
         )}
 

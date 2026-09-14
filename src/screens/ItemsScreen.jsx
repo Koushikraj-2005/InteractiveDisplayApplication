@@ -123,12 +123,12 @@ export function ItemsScreen({ items, itemsError, onItemsChanged }) {
                 <tbody>
                   {items.map((item) => (
                     <tr key={item.id}>
-                      <td className="num">{item.code}</td>
-                      <td className="item-name">{item.name}</td>
-                      <td>{item.names.hi || '—'}</td>
-                      <td>{item.names.bn || '—'}</td>
-                      <td>{item.names.ta || '—'}</td>
-                      <td className="num muted">{item.createdAt}</td>
+                      <td data-label="Code" className="num">{item.code}</td>
+                      <td data-label="Name" className="item-name">{item.name}</td>
+                      <td data-label="Hindi">{item.names.hi || '—'}</td>
+                      <td data-label="Bengali">{item.names.bn || '—'}</td>
+                      <td data-label="Tamil">{item.names.ta || '—'}</td>
+                      <td data-label="Added" className="num muted">{(item.createdAt || '').slice(0, 10)}</td>
                       <td className="col-x">
                         <button
                           type="button"

@@ -50,7 +50,9 @@ export function ReportsScreen() {
     setOverviewLoading(true);
     setOverviewError('');
     try {
-      setOverview(await api.getOverview());
+      const data = await api.getOverview();
+      if (!data || !Array.isArray(data.series)) throw new Error('Unexpected report data');
+      setOverview(data);
     } catch (err) {
       setOverviewError(err.message);
     } finally {
@@ -137,6 +139,10 @@ export function ReportsScreen() {
             <div className="panel-title">LAST 12 MONTHS</div>
             {overviewLoading ? (
               <div className="panel-placeholder">Loading…</div>
+            ) : overviewError && !overview ? (
+              <div className="panel-placeholder error-text">{overviewError}</div>
+            ) : !overview ? (
+              <div className="panel-placeholder">Loading report…</div>
             ) : (
               <table className="data-table">
                 <thead>
@@ -201,7 +207,9 @@ export function ReportsScreen() {
               <div className="panel-placeholder">Loading…</div>
             ) : monthlyError ? (
               <div className="panel-placeholder error-text">{monthlyError}</div>
-            ) : monthly?.perItem?.length === 0 ? (
+            ) : !monthly ? (
+              <div className="panel-placeholder">Loading report…</div>
+            ) : monthly.perItem.length === 0 ? (
               <div className="panel-placeholder">No weighings recorded for this month.</div>
             ) : (
               <table className="data-table">
@@ -227,27 +235,29 @@ export function ReportsScreen() {
 
           <div className="panel">
             <div className="panel-title">
-              RECIPE BREAKDOWN — {MONTH_NAMES[selMonth - 1].toUpperCase()} {selYear}
+              FORMULA BREAKDOWN — {MONTH_NAMES[selMonth - 1].toUpperCase()} {selYear}
             </div>
             {monthlyLoading ? (
               <div className="panel-placeholder">Loading…</div>
             ) : monthlyError ? (
               <div className="panel-placeholder error-text">{monthlyError}</div>
-            ) : monthly?.perRecipe?.length === 0 ? (
-              <div className="panel-placeholder">No recipe-based weighings this month.</div>
+            ) : !monthly ? (
+              <div className="panel-placeholder">Loading report…</div>
+            ) : monthly.perFormula.length === 0 ? (
+              <div className="panel-placeholder">No formula-based weighings this month.</div>
             ) : (
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Recipe</th>
+                    <th>Formula</th>
                     <th className="text-right">Bills</th>
                     <th className="text-right">Total Weight</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {monthly.perRecipe.map((entry) => (
-                    <tr key={entry.recipeName}>
-                      <td className="item-name">{entry.recipeName}</td>
+                  {monthly.perFormula.map((entry) => (
+                    <tr key={entry.formulaName}>
+                      <td className="item-name">{entry.formulaName}</td>
                       <td className="num text-right">{entry.bills}</td>
                       <td className="num text-right">{fmtWeight(entry.totalKg)}</td>
                     </tr>
@@ -284,6 +294,8 @@ export function ReportsScreen() {
               <div className="panel-placeholder">Loading…</div>
             ) : yearlyError ? (
               <div className="panel-placeholder error-text">{yearlyError}</div>
+            ) : !yearly ? (
+              <div className="panel-placeholder">Loading report…</div>
             ) : (
               <table className="data-table">
                 <thead>

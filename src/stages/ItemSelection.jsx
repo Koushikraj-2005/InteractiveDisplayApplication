@@ -3,57 +3,57 @@ import { fmtWeight } from '../lib/weights.js';
 export function ItemSelection({
   items,
   itemsLoading,
-  recipes,
+  formulas,
   cart,
   selectedItemId,
-  selectedRecipeId,
+  selectedFormulaId,
   reqInput,
   reqError,
   onSelectItem,
-  onSelectRecipe,
+  onSelectFormula,
   onReqInput,
   onAddToCart,
   onRemove,
   onStart,
-  onLoadRecipe,
+  onLoadFormula,
 }) {
   const selectedItem = items.find((item) => item.id === selectedItemId);
-  const selectedRecipe = recipes.find((recipe) => recipe.id === selectedRecipeId);
+  const selectedFormula = formulas.find((formula) => formula.id === selectedFormulaId);
 
   const selectItem = (id) => {
     onSelectItem(id);
     onReqInput('');
   };
-  const selectRecipe = (recipe) => {
-    onSelectRecipe(recipe.id);
+  const selectFormula = (formula) => {
+    onSelectFormula(formula.id);
     onReqInput('');
   };
 
-  const recipeContent = selectedRecipe && (
+  const formulaContent = selectedFormula && (
     <div className="select-form">
-      <div className="recipe-summary">
-        <div className="recipe-summary-name">{selectedRecipe.name}</div>
-        <div className="recipe-summary-meta">
-          {selectedRecipe.lines.length} ingredients · {fmtWeight(selectedRecipe.totalWeight)}
+      <div className="formula-summary">
+        <div className="formula-summary-name">{selectedFormula.name}</div>
+        <div className="formula-summary-meta">
+          {selectedFormula.lines.length} ingredients · {fmtWeight(selectedFormula.totalWeight)}
         </div>
       </div>
-      <div className="recipe-builder-list">
-        {selectedRecipe.lines.map((line, index) => (
-          <div key={`${line.itemId}-${index}`} className="recipe-builder-row">
-            <span className="recipe-builder-name">{line.itemName}</span>
-            <span className="num recipe-builder-weight">{fmtWeight(line.requiredWeight)}</span>
+      <div className="formula-builder-list">
+        {selectedFormula.lines.map((line, index) => (
+          <div key={`${line.itemId}-${index}`} className="formula-builder-row">
+            <span className="formula-builder-name">{line.itemName}</span>
+            <span className="num formula-builder-weight">{fmtWeight(line.requiredWeight)}</span>
           </div>
         ))}
       </div>
-      <div className="recipe-master-note">
-        Using this recipe replaces the current weighing list with its ingredients.
+      <div className="formula-master-note">
+        Using this formula replaces the current weighing list with its ingredients.
       </div>
       <button
         type="button"
         className="btn btn-primary btn-block"
-        onClick={() => onLoadRecipe(selectedRecipe)}
+        onClick={() => onLoadFormula(selectedFormula)}
       >
-        LOAD RECIPE INTO WEIGHING LIST
+        LOAD FORMULA INTO WEIGHING LIST
       </button>
     </div>
   );
@@ -96,23 +96,23 @@ export function ItemSelection({
       <div className="selection-layout">
         <div className="left-rail">
           <div className="panel">
-            <div className="panel-title">RECIPE CATALOG</div>
+            <div className="panel-title">FORMULA CATALOG</div>
             <div className="panel-sub">Load a pre-set combination</div>
             <div className="item-list">
-              {recipes.length === 0 ? (
+              {formulas.length === 0 ? (
                 <div className="panel-placeholder">
-                  No recipes yet. Create them under the RECIPES tab.
+                  No formulas yet. Create them under the FORMULAS tab.
                 </div>
               ) : (
-                recipes.map((recipe) => (
+                formulas.map((formula) => (
                   <button
-                    key={recipe.id}
+                    key={formula.id}
                     type="button"
-                    className={`item-row${selectedRecipeId === recipe.id ? ' selected' : ''}`}
-                    onClick={() => selectRecipe(recipe)}
+                    className={`item-row${selectedFormulaId === formula.id ? ' selected' : ''}`}
+                    onClick={() => selectFormula(formula)}
                   >
-                    <span className="item-name">{recipe.name}</span>
-                    <span className="item-code">{recipe.lines.length} ing.</span>
+                    <span className="item-name">{formula.name}</span>
+                    <span className="item-code">{formula.lines.length} ing.</span>
                   </button>
                 ))
               )}
@@ -148,15 +148,15 @@ export function ItemSelection({
 
         <div className="panel">
           <div className="panel-title">
-            {selectedRecipe ? 'SELECTED RECIPE' : 'SELECT ITEM'}
+            {selectedFormula ? 'SELECTED FORMULA' : 'SELECT ITEM'}
           </div>
-          {selectedRecipe
-            ? recipeContent
+          {selectedFormula
+            ? formulaContent
             : selectedItem
               ? itemContent
               : (
                 <div className="panel-placeholder">
-                  Pick a recipe from the catalog or an item from the master to begin building the
+                  Pick a formula from the catalog or an item from the master to begin building the
                   weighing list.
                 </div>
               )}
@@ -184,8 +184,8 @@ export function ItemSelection({
                     <td className="num col-no">{String(index + 1).padStart(2, '0')}</td>
                     <td>
                       {item.name}
-                      {item.recipeName && (
-                        <div className="cart-recipe-tag">{item.recipeName}</div>
+                      {item.formulaName && (
+                        <div className="cart-formula-tag">{item.formulaName}</div>
                       )}
                     </td>
                     <td className="num col-w">{fmtWeight(item.required)}</td>

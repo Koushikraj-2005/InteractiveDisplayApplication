@@ -14,7 +14,8 @@ export function HistoryScreen() {
     setLoading(true);
     setError('');
     try {
-      setBills(await api.getWeighings());
+      const list = await api.getWeighings();
+      setBills(Array.isArray(list) ? list : []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -63,9 +64,9 @@ export function HistoryScreen() {
               >
                 <span className="num batch-no">{bill.batchNo}</span>
                 <span className="history-date">{fmtDateTime(bill.weighedAt)}</span>
-                <span className="history-recipe">
-                  {bill.recipeName ? (
-                    <span className="recipe-name-chip">{bill.recipeName}</span>
+                <span className="history-formula">
+                  {bill.formulaName ? (
+                    <span className="formula-name-chip">{bill.formulaName}</span>
                   ) : (
                     <span className="muted">—</span>
                   )}
@@ -79,9 +80,9 @@ export function HistoryScreen() {
                   {detailError && <div className="error-text">{detailError}</div>}
                   {detail && (
                     <>
-                      {detail.recipeName && (
-                        <div className="history-detail-recipe">
-                          Recipe: <b>{detail.recipeName}</b>
+                      {detail.formulaName && (
+                        <div className="history-detail-formula">
+                          Formula: <b>{detail.formulaName}</b>
                         </div>
                       )}
                       <table className="data-table">

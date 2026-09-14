@@ -119,7 +119,7 @@ app.delete('/api/items/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Recipes ----------
+// ---------- Formulas ----------
 
 const httpError = (status, message) => {
   const error = new Error(message);
@@ -127,7 +127,7 @@ const httpError = (status, message) => {
   return error;
 };
 
-const toRecipeJson = (row, lines) => ({
+const toFormulaJson = (row, lines) => ({
   id: row.id,
   name: row.name,
   itemCount: row.item_count,
@@ -136,9 +136,9 @@ const toRecipeJson = (row, lines) => ({
   lines,
 });
 
-const parseRecipeBody = (body) => {
+const parseFormulaBody = (body) => {
   const name = String(body.name || '').trim();
-  if (!name) throw httpError(400, 'Recipe name is required');
+  if (!name) throw httpError(400, 'Formula name is required');
 
   const rawLines = Array.isArray(body.lines) ? body.lines : [];
   const lines = [];
@@ -156,86 +156,86 @@ const parseRecipeBody = (body) => {
     });
   }
   if (lines.length === 0) {
-    throw httpError(400, 'Recipe needs at least one valid ingredient with a weight above zero');
+    throw httpError(400, 'Formula needs at least one valid ingredient with a weight above zero');
   }
   return { name, lines };
 };
 
-const recipeLinesSql =
-  'SELECT id, recipe_id AS recipeId, item_id AS itemId, item_name AS itemName, required_weight AS requiredWeight, position FROM recipe_lines WHERE recipe_id = ? ORDER BY position ASC';
+const formulaLinesSql =
+  'SELECT id, formula_id AS formulaId, item_id AS itemId, item_name AS itemName, required_weight AS requiredWeight, position FROM formula_lines WHERE formula_id = ? ORDER BY position ASC';
 
-app.get('/api/recipes', (req, res) => {
-  const rows = db.prepare('SELECT * FROM recipes ORDER BY name ASC').all();
+app.get('/api/formulas', (req, res) => {
+  const rows = db.prepare('SELECT * FROM formulas ORDER BY name ASC').all();
   const lineRows = db.prepare(
-    'SELECT id, recipe_id AS recipeId, item_id AS itemId, item_name AS itemName, required_weight AS requiredWeight, position FROM recipe_lines ORDER BY recipe_id ASC, position ASC',
+    'SELECT id, formula_id AS formulaId, item_id AS itemId, item_name AS itemName, required_weight AS requiredWeight, position FROM formula_lines ORDER BY formula_id ASC, position ASC',
   ).all();
-  const byRecipe = new Map();
+  const byFormula = new Map();
   for (const line of lineRows) {
-    if (!byRecipe.has(line.recipeId)) byRecipe.set(line.recipeId, []);
-    byRecipe.get(line.recipeId).push(line);
+    if (!byFormula.has(line.formulaId)) byFormula.set(line.formulaId, []);
+    byFormula.get(line.formulaId).push(line);
   }
-  res.json(rows.map((row) => toRecipeJson(row, byRecipe.get(row.id) || [])));
+  res.json(rows.map((row) => toFormulaJson(row, byFormula.get(row.id) || [])));
 });
 
-app.post('/api/recipes', (req, res) => {
+app.post('/api/formulas', (req, res) => {
   let parsed;
   try {
-    parsed = parseRecipeBody(req.body);
+    parsed = parseFormulaBody(req.body);
   } catch (err) {
     return res.status(err.status || 400).json({ error: err.message });
   }
 
-  const existing = db.prepare('SELECT COUNT(*) AS n FROM recipes WHERE name = ?').get(parsed.name);
+  const existing = db.prepare('SELECT COUNT(*) AS n FROM formulas WHERE name = ?').get(parsed.name);
   if (existing.n > 0) {
-    return res.status(409).json({ error: `Recipe "${parsed.name}" already exists` });
+    return res.status(409).json({ error: `Formula "${parsed.name}" already exists` });
   }
 
   const itemCount = parsed.lines.length;
   const totalWeight =
     Math.round(parsed.lines.reduce((sum, line) => sum + line.requiredWeight, 0) * 1000) / 1000;
 
-  const insertRecipe = db.prepare(
-    'INSERT INTO recipes (name, item_count, total_weight) VALUES (?, ?, ?)',
+  const insertFormula = db.prepare(
+    'INSERT INTO formulas (name, item_count, total_weight) VALUES (?, ?, ?)',
   );
   const insertLine = db.prepare(
-    'INSERT INTO recipe_lines (recipe_id, item_id, item_name, required_weight, position) VALUES (?, ?, ?, ?, ?)',
+    'INSERT INTO formula_lines (formula_id, item_id, item_name, required_weight, position) VALUES (?, ?, ?, ?, ?)',
   );
 
   db.exec('BEGIN');
   try {
-    const info = insertRecipe.run(parsed.name, itemCount, totalWeight);
-    const recipeId = Number(info.lastInsertRowid);
+    const info = insertFormula.run(parsed.name, itemCount, totalWeight);
+    const formulaId = Number(info.lastInsertRowid);
     parsed.lines.forEach((line, index) =>
-      insertLine.run(recipeId, line.itemId, line.itemName, line.requiredWeight, index),
+      insertLine.run(formulaId, line.itemId, line.itemName, line.requiredWeight, index),
     );
     db.exec('COMMIT');
-    const row = db.prepare('SELECT * FROM recipes WHERE id = ?').get(recipeId);
-    res.status(201).json(toRecipeJson(row, parsed.lines));
+    const row = db.prepare('SELECT * FROM formulas WHERE id = ?').get(formulaId);
+    res.status(201).json(toFormulaJson(row, parsed.lines));
   } catch (err) {
     db.exec('ROLLBACK');
     console.error(err);
-    res.status(500).json({ error: 'Failed to save recipe' });
+    res.status(500).json({ error: 'Failed to save formula' });
   }
 });
 
-app.put('/api/recipes/:id', (req, res) => {
+app.put('/api/formulas/:id', (req, res) => {
   const id = Number(req.params.id);
-  if (!db.prepare('SELECT id FROM recipes WHERE id = ?').get(id)) {
-    return res.status(404).json({ error: 'Recipe not found' });
+  if (!db.prepare('SELECT id FROM formulas WHERE id = ?').get(id)) {
+    return res.status(404).json({ error: 'Formula not found' });
   }
 
   let parsed;
   try {
-    parsed = parseRecipeBody(req.body);
+    parsed = parseFormulaBody(req.body);
   } catch (err) {
     return res.status(err.status || 400).json({ error: err.message });
   }
 
   const nameDup = db
-    .prepare('SELECT COUNT(*) AS n FROM recipes WHERE name = ? AND id != ?')
+    .prepare('SELECT COUNT(*) AS n FROM formulas WHERE name = ? AND id != ?')
     .get(parsed.name, id);
   if (nameDup.n > 0) {
-    return res.status(409).json({ error: `Recipe "${parsed.name}" already exists` });
+    return res.status(409).json({ error: `Formula "${parsed.name}" already exists` });
   }
 
   const itemCount = parsed.lines.length;
@@ -244,33 +244,33 @@ app.put('/api/recipes/:id', (req, res) => {
 
   db.exec('BEGIN');
   try {
-    db.prepare('UPDATE recipes SET name = ?, item_count = ?, total_weight = ? WHERE id = ?').run(
+    db.prepare('UPDATE formulas SET name = ?, item_count = ?, total_weight = ? WHERE id = ?').run(
       parsed.name,
       itemCount,
       totalWeight,
       id,
     );
-    db.prepare('DELETE FROM recipe_lines WHERE recipe_id = ?').run(id);
+    db.prepare('DELETE FROM formula_lines WHERE formula_id = ?').run(id);
     const insertLine = db.prepare(
-      'INSERT INTO recipe_lines (recipe_id, item_id, item_name, required_weight, position) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO formula_lines (formula_id, item_id, item_name, required_weight, position) VALUES (?, ?, ?, ?, ?)',
     );
     parsed.lines.forEach((line, index) =>
       insertLine.run(id, line.itemId, line.itemName, line.requiredWeight, index),
     );
     db.exec('COMMIT');
-    const row = db.prepare('SELECT * FROM recipes WHERE id = ?').get(id);
-    res.json(toRecipeJson(row, db.prepare(recipeLinesSql).all(id)));
+    const row = db.prepare('SELECT * FROM formulas WHERE id = ?').get(id);
+    res.json(toFormulaJson(row, db.prepare(formulaLinesSql).all(id)));
   } catch (err) {
     db.exec('ROLLBACK');
     console.error(err);
-    res.status(500).json({ error: 'Failed to update recipe' });
+    res.status(500).json({ error: 'Failed to update formula' });
   }
 });
 
-app.delete('/api/recipes/:id', (req, res) => {
-  const info = db.prepare('DELETE FROM recipes WHERE id = ?').run(Number(req.params.id));
+app.delete('/api/formulas/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM formulas WHERE id = ?').run(Number(req.params.id));
   if (info.changes === 0) {
-    return res.status(404).json({ error: 'Recipe not found' });
+    return res.status(404).json({ error: 'Formula not found' });
   }
   res.json({ ok: true });
 });
@@ -293,10 +293,10 @@ app.post('/api/weighings', (req, res) => {
   const itemCount = lines.length;
   const totalWeight = lines.reduce((sum, line) => sum + (parseOptionalWeight(line.requiredWeight) || 0), 0);
   const weighedAt = String(body.weighedAt || localIsoNow()).slice(0, 19);
-  const recipeName = String(body.recipeName || '').trim() || null;
+  const formulaName = String(body.formulaName || '').trim() || null;
 
   const insertWeighing = db.prepare(
-    'INSERT INTO weighings (batch_no, weighed_at, item_count, total_weight, recipe_name) VALUES (?, ?, ?, ?, ?)',
+    'INSERT INTO weighings (batch_no, weighed_at, item_count, total_weight, formula_name) VALUES (?, ?, ?, ?, ?)',
   );
   const insertLine = db.prepare(
     'INSERT INTO weighing_lines (weighing_id, item_id, item_name, required_weight) VALUES (?, ?, ?, ?)',
@@ -304,7 +304,7 @@ app.post('/api/weighings', (req, res) => {
 
   db.exec('BEGIN');
   try {
-    const info = insertWeighing.run('', weighedAt, itemCount, Math.round(totalWeight * 1000) / 1000, recipeName);
+    const info = insertWeighing.run('', weighedAt, itemCount, Math.round(totalWeight * 1000) / 1000, formulaName);
     const id = Number(info.lastInsertRowid);
     const batchNo = `WS-${String(id).padStart(5, '0')}`;
     db.prepare('UPDATE weighings SET batch_no = ? WHERE id = ?').run(batchNo, id);
@@ -328,7 +328,7 @@ const toBillJson = (row) => ({
   id: row.id,
   batchNo: row.batch_no,
   weighedAt: row.weighed_at,
-  recipeName: row.recipe_name || null,
+  formulaName: row.formula_name || null,
   itemCount: row.item_count,
   totalWeight: row.total_weight,
 });
@@ -416,19 +416,19 @@ app.get('/api/reports/monthly', (req, res) => {
     )
     .all(key);
 
-  const perRecipe = db
+  const perFormula = db
     .prepare(
-      `SELECT recipe_name AS recipeName,
+      `SELECT formula_name AS formulaName,
               COUNT(*) AS bills,
               ROUND(SUM(total_weight), 3) AS totalKg
        FROM weighings
-       WHERE substr(weighed_at, 1, 7) = ? AND recipe_name IS NOT NULL
-       GROUP BY recipe_name
-       ORDER BY totalKg DESC, recipeName ASC`,
+       WHERE substr(weighed_at, 1, 7) = ? AND formula_name IS NOT NULL
+       GROUP BY formula_name
+       ORDER BY totalKg DESC, formulaName ASC`,
     )
     .all(key);
 
-  res.json({ year, month, key, summary, perItem, perRecipe });
+  res.json({ year, month, key, summary, perItem, perFormula });
 });
 
 app.get('/api/reports/yearly', (req, res) => {

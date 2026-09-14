@@ -463,17 +463,17 @@ input {
 .data-table th {
   background: #eef0f3;
   color: #55606e;
-  font-size: 10.5px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   text-align: left;
   font-weight: 700;
 }
 
 .data-table td {
-  padding: 6px 8px;
+  padding: 9px 10px;
   border-bottom: 1px solid #e4e7eb;
 }
 
@@ -1119,7 +1119,7 @@ input {
 
   .history-items,
   .history-weight,
-  .history-recipe {
+  .history-formula {
     display: none;
   }
 
@@ -1222,6 +1222,143 @@ input {
   .completion-actions .btn {
     width: 100%;
   }
+
+  /* Items master + formula catalog: tables become cards */
+  .items-list-panel .table-scroll {
+    overflow: visible;
+  }
+
+  .items-list-panel .data-table,
+  .items-list-panel .data-table tbody,
+  .items-list-panel .data-table tr,
+  .items-list-panel .data-table td {
+    display: block;
+  }
+
+  .items-list-panel .data-table thead {
+    display: none;
+  }
+
+  .items-list-panel .data-table {
+    width: 100%;
+  }
+
+  .items-list-panel .data-table tr {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #ffffff;
+    margin: 0 0 10px;
+    padding: 9px 12px;
+    box-shadow: 0 1px 2px rgba(20, 35, 55, 0.05);
+  }
+
+  .items-list-panel .data-table td {
+    border: none;
+    padding: 3px 0;
+    text-align: left;
+    font-size: 13px;
+  }
+
+  .items-list-panel .data-table td[data-label]::before {
+    content: attr(data-label);
+    display: inline-block;
+    min-width: 74px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-right: 6px;
+  }
+
+  .items-list-panel .data-table td.item-name,
+  .items-list-panel .data-table td:first-child {
+    font-size: 15px;
+    margin-bottom: 2px;
+  }
+
+  .items-list-panel .data-table td.col-x {
+    padding-top: 8px;
+    border-top: 1px solid #eceff2;
+    margin-top: 6px;
+  }
+
+  .items-list-panel .data-table td.col-x .delete-btn {
+    min-height: 38px;
+    font-size: 12px;
+  }
+
+  .formula-lines {
+    max-width: none;
+  }
+
+  .formula-actions {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .formula-actions .delete-btn {
+    flex: 1;
+    max-width: 140px;
+  }
+
+  /* Add-form polish */
+  .items-form {
+    gap: 13px;
+    padding: 14px 12px 12px;
+  }
+
+  .field-label {
+    font-size: 11px;
+  }
+
+  .items-form .text-input {
+    padding: 11px 10px;
+    font-size: 15px;
+  }
+
+  /* Formula add: select on its own row, weight + ADD on one row */
+  .ing-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .ing-row .select-input {
+    grid-column: 1 / -1;
+    padding: 11px 10px;
+    font-size: 15px;
+  }
+
+  .ing-row .btn {
+    min-height: 42px;
+  }
+
+  .formula-builder-row {
+    padding: 10px 10px;
+    font-size: 13.5px;
+  }
+
+  .formula-builder-total {
+    font-size: 13px;
+    padding: 9px 10px;
+  }
+
+  .formula-name-chip,
+  .formula-line-chip {
+    font-size: 11.5px;
+    padding: 3px 8px;
+    margin: 2px 3px 2px 0;
+  }
+
+  .formula-summary-name {
+    font-size: 24px;
+  }
+
+  .screen-sub {
+    font-size: 12px;
+  }
 }
 
 @media (max-width: 400px) {
@@ -1247,9 +1384,13 @@ input {
 
 .items-layout {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
   align-items: start;
+}
+
+.items-form-panel {
+  max-width: 560px;
 }
 
 .items-form {
@@ -1478,7 +1619,7 @@ input {
   background: #eef0f3;
 }
 
-/* ---------- Recipes ---------- */
+/* ---------- Formulas ---------- */
 
 .ing-row {
   display: flex;
@@ -1497,14 +1638,14 @@ input {
   flex: 1;
 }
 
-.recipe-builder-list {
+.formula-builder-list {
   border: 1px solid var(--border);
   border-radius: 3px;
   max-height: 240px;
   overflow-y: auto;
 }
 
-.recipe-builder-row {
+.formula-builder-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1513,22 +1654,22 @@ input {
   font-size: 12.5px;
 }
 
-.recipe-builder-row:last-child {
+.formula-builder-row:last-child {
   border-bottom: none;
 }
 
-.recipe-builder-name {
+.formula-builder-name {
   flex: 1;
   min-width: 0;
   font-weight: 600;
 }
 
-.recipe-builder-weight {
+.formula-builder-weight {
   font-family: var(--mono);
   color: var(--text);
 }
 
-.recipe-builder-total {
+.formula-builder-total {
   display: flex;
   justify-content: space-between;
   padding: 7px 8px;
@@ -1538,65 +1679,66 @@ input {
   border-top: 1px solid var(--border);
 }
 
-.recipe-form-actions {
+.formula-form-actions {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.recipe-name-chip,
-.recipe-line-chip {
+.formula-name-chip,
+.formula-line-chip {
   display: inline-block;
   background: #e9eff7;
   border: 1px solid #c9d6e6;
   color: #2f5ea3;
   border-radius: 3px;
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 600;
-  padding: 2px 6px;
-  margin: 1px 2px;
+  padding: 3px 8px;
+  margin: 2px 4px 2px 0;
 }
 
-.recipe-name {
+.formula-name {
   font-weight: 700;
+  font-size: 15px;
 }
 
-.recipe-lines {
+.formula-lines {
   margin-top: 3px;
   max-width: 420px;
 }
 
-.recipe-actions {
+.formula-actions {
   display: flex;
   gap: 4px;
   justify-content: flex-end;
 }
 
-.recipe-summary-name {
+.formula-summary-name {
   font-size: 22px;
   font-weight: 800;
   color: #1c2b3d;
 }
 
-.recipe-summary-meta {
+.formula-summary-meta {
   font-size: 12.5px;
   color: var(--muted);
   font-family: var(--mono);
   margin-top: 2px;
 }
 
-.recipe-master-note {
+.formula-master-note {
   font-size: 11.5px;
   color: var(--muted);
 }
 
-.cart-recipe-tag {
+.cart-formula-tag {
   font-size: 10px;
   color: var(--blue);
   font-weight: 600;
 }
 
-.recipe-label {
+.formula-label {
   display: inline-block;
   margin-top: 6px;
   background: #e9eff7;
@@ -1608,12 +1750,12 @@ input {
   padding: 3px 8px;
 }
 
-.history-recipe {
+.history-formula {
   min-width: 0;
   overflow: hidden;
 }
 
-.history-detail-recipe {
+.history-detail-formula {
   font-size: 12.5px;
   color: var(--text);
   margin-bottom: 8px;

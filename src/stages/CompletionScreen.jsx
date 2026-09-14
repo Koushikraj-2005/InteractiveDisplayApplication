@@ -6,10 +6,10 @@ export function CompletionScreen({ cart, savedBill, saving, saveError, onStartNe
     : saving
       ? 'SAVING RECORD…'
       : `WEIGH-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
-  const recipeNames = new Set(
-    cart.map((item) => item.recipeName).filter((name) => Boolean(name)),
+  const formulaNames = new Set(
+    cart.map((item) => item.formulaName).filter((name) => Boolean(name)),
   );
-  const recipeLabel = recipeNames.size === 1 ? [...recipeNames][0] : null;
+  const formulaLabel = formulaNames.size === 1 ? [...formulaNames][0] : null;
 
   return (
     <section className="stage">
@@ -21,8 +21,8 @@ export function CompletionScreen({ cart, savedBill, saving, saveError, onStartNe
               Batch: {batchLabel}
               {savedBill ? ` · Recorded ${fmtDateTime(savedBill.weighedAt)}` : ''}
             </div>
-            {recipeLabel && (
-              <div className="recipe-label">Recipe: {recipeLabel}</div>
+            {formulaLabel && (
+              <div className="formula-label">Formula: {formulaLabel}</div>
             )}
             {(saving || saveError) && (
               <div className={`save-state ${saveError ? 'save-error' : 'save-saved'}`}>

@@ -1,5 +1,5 @@
 {
-  "name": "weighing-machine-sim",
+  "name": "naveen-farms",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -7,12 +7,16 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "verify": "npm run build && vite preview",
     "server": "node server/index.mjs",
     "start": "node server/index.mjs",
     "dev:all": "concurrently -k -n WEB,API -c blue,green \"vite\" \"node server/index.mjs\"",
     "tts:download": "node scripts/download-tts.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
