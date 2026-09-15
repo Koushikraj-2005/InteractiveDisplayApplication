@@ -1,6 +1,6 @@
 import { fmtDateTime, fmtWeight } from '../lib/weights.js';
 
-export function CompletionScreen({ cart, savedBill, saving, saveError, onStartNew, onPrint, onViewHistory, onRetry }) {
+export function CompletionScreen({ cart, savedBill, saving, saveError, onStartNew, onPrint, onRetry }) {
   const batchLabel = savedBill
     ? savedBill.batchNo
     : saving
@@ -74,11 +74,6 @@ export function CompletionScreen({ cart, savedBill, saving, saveError, onStartNe
           <button type="button" className="btn btn-secondary" onClick={onPrint}>
             PRINT REPORT
           </button>
-          {onViewHistory && (
-            <button type="button" className="btn btn-secondary" onClick={onViewHistory}>
-              VIEW HISTORY
-            </button>
-          )}
           <button type="button" className="btn btn-primary btn-lg" onClick={onStartNew}>
             START NEW WEIGHING
           </button>

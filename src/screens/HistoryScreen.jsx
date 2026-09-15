@@ -9,6 +9,7 @@ export function HistoryScreen() {
   const [openId, setOpenId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [detailError, setDetailError] = useState('');
+  const [detailLoading, setDetailLoading] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -27,19 +28,35 @@ export function HistoryScreen() {
     load();
   }, []);
 
+  async function retryDetail(id) {
+    setDetailError('');
+    setDetailLoading(true);
+    try {
+      setDetail(await api.getWeighing(id));
+    } catch (err) {
+      setDetailError(err.message);
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
   async function toggle(id) {
     if (openId === id) {
       setOpenId(null);
       setDetail(null);
+      setDetailError('');
       return;
     }
     setOpenId(id);
     setDetail(null);
     setDetailError('');
+    setDetailLoading(true);
     try {
       setDetail(await api.getWeighing(id));
     } catch (err) {
       setDetailError(err.message);
+    } finally {
+      setDetailLoading(false);
     }
   }
 
@@ -77,7 +94,19 @@ export function HistoryScreen() {
               </button>
               {opened && (
                 <div className="history-detail">
-                  {detailError && <div className="error-text">{detailError}</div>}
+                  {detailLoading && <div className="panel-placeholder">Loading details…</div>}
+                  {detailError && (
+                    <div className="error-text">
+                      {detailError}{' '}
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => retryDetail(id)}
+                      >
+                        RETRY
+                      </button>
+                    </div>
+                  )}
                   {detail && (
                     <>
                       {detail.formulaName && (
@@ -128,7 +157,14 @@ export function HistoryScreen() {
       </div>
       <div className="screen-sub">All stored bills, newest first. Click a batch to view its line items.</div>
 
-      {error && <div className="error-banner">Could not load history: {error}</div>}
+      {error && (
+        <div className="error-banner">
+          Could not load history: {error}{' '}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={load}>
+            RETRY
+          </button>
+        </div>
+      )}
 
       <div className="panel">
         <div className="panel-title">STORED BILLS ({bills.length})</div>

@@ -45,6 +45,7 @@ export default function App() {
   const [savedBill, setSavedBill] = useState(null);
   const [billSaving, setBillSaving] = useState(false);
   const [billError, setBillError] = useState('');
+  const [billPayload, setBillPayload] = useState(null);
   const { raw, setRaw, getReading } = useWeightSource();
 
   async function loadItems(silent = false) {
@@ -191,12 +192,14 @@ export default function App() {
       cart.map((item) => item.formulaName).filter((name) => Boolean(name)),
     );
     const formulaName = formulaNames.size === 1 ? [...formulaNames][0] : null;
+    const payload = { weighedAt: localIsoNow(), lines, totalWeight, formulaName };
+    setBillPayload(payload);
     setStage('complete');
     setSavedBill(null);
     setBillError('');
     setBillSaving(true);
     api
-      .saveWeighing({ weighedAt: localIsoNow(), lines, totalWeight, formulaName })
+      .saveWeighing(payload)
       .then((bill) => {
         setSavedBill(bill);
         setBillSaving(false);
@@ -205,6 +208,33 @@ export default function App() {
         setBillError(err.message);
         setBillSaving(false);
       });
+  }
+
+  function retrySave() {
+    if (!billPayload) return;
+    setSavedBill(null);
+    setBillError('');
+    setBillSaving(true);
+    api
+      .saveWeighing(billPayload)
+      .then((bill) => {
+        setSavedBill(bill);
+        setBillSaving(false);
+      })
+      .catch((err) => {
+        setBillError(err.message);
+        setBillSaving(false);
+      });
+  }
+
+  function cancelWeighing() {
+    stopSpeaking();
+    setActiveIndex(0);
+    setRaw('');
+    setSavedBill(null);
+    setBillError('');
+    setBillPayload(null);
+    setStage('select');
   }
 
   function startNewWeighing() {
@@ -217,6 +247,7 @@ export default function App() {
     setReqError('');
     setSavedBill(null);
     setBillError('');
+    setBillPayload(null);
     setStage('select');
   }
 
@@ -277,6 +308,15 @@ export default function App() {
           </div>
         )}
 
+        {formulasError && screen === 'weighing' && (
+          <div className="error-banner">
+            Formula catalog unavailable: {formulasError}{' '}
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => loadFormulas()}>
+              RETRY
+            </button>
+          </div>
+        )}
+
         {screen === 'weighing' && (
           <>
             {stage === 'select' && (
@@ -310,6 +350,7 @@ export default function App() {
                 voiceLang={voiceLang}
                 onReading={setRaw}
                 onNext={handleNext}
+                onCancel={cancelWeighing}
               />
             )}
 
@@ -321,6 +362,8 @@ export default function App() {
                 saveError={billError}
                 onStartNew={startNewWeighing}
                 onPrint={printReport}
+                onViewHistory={() => setScreen('history')}
+                onRetry={retrySave}
               />
             )}
           </>
@@ -329,6 +372,7 @@ export default function App() {
         {screen === 'items' && (
           <ItemsScreen
             items={items}
+            itemsLoading={itemsLoading}
             itemsError={itemsError}
             onItemsChanged={() => {
               loadItems();
@@ -341,6 +385,7 @@ export default function App() {
           <FormulasScreen
             items={items}
             formulas={formulas}
+            formulasError={formulasError}
             onFormulasChanged={loadFormulas}
           />
         )}

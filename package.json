@@ -6,11 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:staff": "vite build --config staff-app/vite.config.js",
+    "build:all": "npm run build && npm run build:staff",
     "preview": "vite preview",
     "verify": "npm run build && vite preview",
     "server": "node server/index.mjs",
     "start": "node server/index.mjs",
-    "dev:all": "concurrently -k -n WEB,API -c blue,green \"vite\" \"node server/index.mjs\"",
+    "dev:all": "concurrently -k -n API,WEB,STAFF -c green,blue,magenta \"node server/index.mjs\" \"vite\" \"vite --config staff-app/vite.config.js\"",
     "tts:download": "node scripts/download-tts.mjs"
   },
   "dependencies": {

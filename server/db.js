@@ -32,6 +32,7 @@ function migrateLegacyRecipeTables() {
 
 export function initDb() {
   db.exec('PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA foreign_keys = ON;');
 
   migrateLegacyRecipeTables();
 
