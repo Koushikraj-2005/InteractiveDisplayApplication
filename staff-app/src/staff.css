@@ -433,3 +433,16 @@
     padding-top: 10px;
   }
 }
+
+/* Formula-only select: single centered panel */
+
+.staff-select-grid.single {
+  grid-template-columns: 1fr;
+  max-width: 680px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.staff-select-grid.single .staff-list-scroll {
+  max-height: 460px;
+}

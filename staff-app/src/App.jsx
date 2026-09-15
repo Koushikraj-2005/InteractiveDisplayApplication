@@ -4,31 +4,28 @@ import {
   evaluateReading,
   fmtWeight,
   localIsoNow,
-  parseWeight,
   round3,
 } from './lib/weights.js';
 import { useWeightSource } from './lib/weightSource.js';
-import { preloadAll, speakItem, stopSpeaking } from './lib/tts.js';
+import { preloadAll, stopSpeaking } from './lib/tts.js';
 import { api } from './api.js';
 import { WeighingTerminal } from './stages/WeighingTerminal.jsx';
-import { ItemSelection } from './stages/ItemSelection.jsx';
-import { CompletionScreen } from './stages/CompletionScreen.jsx';
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 const NEUTRAL = { type: 'neutral', title: '', detail: '', difference: null, correct: false };
 
-function StaffSelect({ formulas, items, itemsLoading, onFormula, onItem, onOpenBuilder }) {
+function StaffSelect({ formulas, itemsLoading, onFormula }) {
   return (
     <section className="stage staff-select">
       <div className="staff-select-intro">
         <div className="screen-title">STAFF WEIGHING TERMINAL</div>
         <div className="screen-sub">
-          Load a formula, build a weighing list with targets, or weigh a single item to a target.
+          Load a formula and weigh each item to its exact target.
         </div>
       </div>
 
-      <div className="staff-select-grid">
+      <div className="staff-select-grid single">
         <div className="panel staff-panel staff-panel-formula">
           <div className="panel-title">
             <span className="panel-num">1</span>
@@ -64,114 +61,6 @@ function StaffSelect({ formulas, items, itemsLoading, onFormula, onItem, onOpenB
                 </button>
               ))
             )}
-          </div>
-        </div>
-
-        <div className="panel staff-panel staff-panel-build">
-          <div className="panel-title">
-            <span className="panel-num">2</span>
-            <span>WEIGH ITEMS</span>
-          </div>
-          <div className="staff-panel-sub">
-            Pick items from the master, set or change each target, then weigh the whole list.
-          </div>
-          <div className="staff-list-scroll">
-            <button type="button" className="staff-row staff-cta-row" onClick={onOpenBuilder}>
-              <span className="staff-cta-left">
-                <span className="staff-cta-icon">+</span>
-                <div className="staff-row-main">
-                  <div className="staff-row-name">Build a weighing list</div>
-                  <div className="staff-row-meta">Choose items · set targets · record a bill</div>
-                </div>
-              </span>
-              <span className="staff-row-action">OPEN</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="panel staff-panel staff-panel-single">
-          <div className="panel-title">
-            <span className="panel-num">3</span>
-            <span>WEIGH A SINGLE ITEM</span>
-            {items.length > 0 && <span className="panel-count">{items.length}</span>}
-          </div>
-          <div className="staff-panel-sub">
-            Enter a target weight, then weigh the item on the terminal.
-          </div>
-          <div className="staff-list-scroll">
-            {itemsLoading ? (
-              <div className="panel-placeholder">Loading items…</div>
-            ) : items.length === 0 ? (
-              <div className="panel-placeholder">
-                No items available. Add them in the admin portal first.
-              </div>
-            ) : (
-              items.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="staff-row"
-                  onClick={() => onItem(item)}
-                >
-                  <div className="staff-row-main">
-                    <div className="staff-row-code">{item.code}</div>
-                    <div className="staff-row-name">{item.name}</div>
-                  </div>
-                  <span className="staff-row-action">WEIGH</span>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function StaffTargetPrompt({ item, reqInput, reqError, onReqInput, onStart, onCancel, voiceLang, onSay }) {
-  return (
-    <section className="stage">
-      <div className="staff-target-wrap">
-        <div className="panel staff-target-card">
-          <div className="panel-title">SET TARGET WEIGHT</div>
-          <div className="staff-target-head">
-            <div className="staff-free-code">{item.code}</div>
-            <div className="current-item-name">{item.name.toUpperCase()}</div>
-            <div className="current-item-local">{item.names[voiceLang] || item.name}</div>
-            <button type="button" className="speaker-btn" onClick={onSay} aria-label="Say item name">
-              🔊
-            </button>
-          </div>
-
-          <div className="form-field">
-            <div className="field-label">Required Weight (target)</div>
-            <div className="input-row">
-              <input
-                id="single-target"
-                className="weight-input"
-                type="number"
-                step="0.001"
-                min="0"
-                placeholder="0.000"
-                inputMode="decimal"
-                value={reqInput}
-                onChange={(event) => onReqInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') onStart();
-                }}
-              />
-              <span className="unit">kg</span>
-            </div>
-            {reqError && <div className="error-text">{reqError}</div>}
-          </div>
-
-          <div className="staff-target-actions">
-            <button type="button" className="btn btn-secondary" onClick={onCancel}>
-              CANCEL
-            </button>
-            <button type="button" className="btn btn-primary btn-lg" onClick={onStart}>
-              START WEIGHING
-            </button>
           </div>
         </div>
       </div>
@@ -230,16 +119,8 @@ export default function StaffApp() {
   const [voiceLang, setVoiceLang] = useState('en');
 
   const [stage, setStage] = useState('select');
-  const [flow, setFlow] = useState('formula');
   const [cart, setCart] = useState([]);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [freeItem, setFreeItem] = useState(null);
-
-  const [selectedItemId, setSelectedItemId] = useState(null);
-  const [selectedFormulaId, setSelectedFormulaId] = useState(null);
-  const [reqInput, setReqInput] = useState('');
-  const [reqError, setReqError] = useState('');
-  const [targetError, setTargetError] = useState('');
 
   const [savedBill, setSavedBill] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -270,142 +151,8 @@ export default function StaffApp() {
     if (items.length > 0) preloadAll(items, VOICE_LANGS);
   }, [items]);
 
-  useEffect(() => {
-    if (selectedItemId != null && !items.some((item) => item.id === selectedItemId)) {
-      setSelectedItemId(null);
-      setReqInput('');
-    }
-  }, [items, selectedItemId]);
-
-  const selectedItem = items.find((item) => item.id === selectedItemId) || null;
-
   const activeItem = stage === 'weighing' ? cart[activeIndex] : null;
   const status = activeItem ? evaluateReading(activeItem.required, getReading()) : NEUTRAL;
-
-  function openBuilder() {
-    stopSpeaking();
-    setCart([]);
-    setSelectedItemId(null);
-    setSelectedFormulaId(null);
-    setReqInput('');
-    setReqError('');
-    setTargetError('');
-    setSaveError('');
-    setStage('build');
-  }
-
-  function goToMenu() {
-    stopSpeaking();
-    setCart([]);
-    setActiveIndex(0);
-    setFreeItem(null);
-    setSelectedItemId(null);
-    setSelectedFormulaId(null);
-    setReqInput('');
-    setReqError('');
-    setTargetError('');
-    setSavedBill(null);
-    setSaveError('');
-    setRaw('');
-    setStage('select');
-  }
-
-  function cancelWeighing() {
-    stopSpeaking();
-    setActiveIndex(0);
-    setRaw('');
-    setSavedBill(null);
-    setSaveError('');
-    setStage('select');
-  }
-
-  function selectItem(id) {
-    setSelectedItemId(id);
-    setSelectedFormulaId(null);
-    setReqInput('');
-    setReqError('');
-  }
-
-  function selectFormula(id) {
-    setSelectedFormulaId(id);
-    setSelectedItemId(null);
-    setReqInput('');
-    setReqError('');
-  }
-
-  function loadFormulaIntoList(formula) {
-    const lines = formula.lines
-      .map((line) => {
-        const item = items.find((candidate) => candidate.id === line.itemId);
-        return {
-          uid: uid(),
-          id: line.itemId,
-          slug: item ? item.slug : null,
-          name: item ? item.name : line.itemName,
-          names: item ? item.names : { en: line.itemName, hi: '', bn: '', ta: '' },
-          required: round3(line.requiredWeight),
-          status: 'pending',
-          formulaId: formula.id,
-          formulaName: formula.name,
-        };
-      })
-      .filter(Boolean);
-    if (lines.length === 0) return;
-    setCart(lines);
-    setSelectedFormulaId(null);
-  }
-
-  function addToCart() {
-    const required = parseWeight(reqInput);
-    if (required == null || required <= 0) {
-      setReqError('Enter a valid weight above zero, e.g. 2.000');
-      return;
-    }
-    if (!selectedItem) return;
-    setCart((prev) => [
-      ...prev,
-      {
-        uid: uid(),
-        id: selectedItem.id,
-        slug: selectedItem.slug,
-        name: selectedItem.name,
-        names: selectedItem.names,
-        required: round3(required),
-        status: 'pending',
-      },
-    ]);
-    setReqInput('');
-    setReqError('');
-  }
-
-  function removeFromCart(itemUid) {
-    setCart((prev) => prev.filter((item) => item.uid !== itemUid));
-  }
-
-  function updateTarget(itemUid, value) {
-    const parsed = parseWeight(value);
-    if (parsed == null || parsed <= 0) {
-      setTargetError('Enter a valid target weight above zero, e.g. 2.000');
-      return;
-    }
-    setTargetError('');
-    setCart((prev) =>
-      prev.map((item) =>
-        item.uid === itemUid ? { ...item, required: round3(parsed) } : item,
-      ),
-    );
-  }
-
-  function beginWeighing() {
-    if (cart.length === 0) return;
-    stopSpeaking();
-    setFlow('items');
-    setActiveIndex(0);
-    setRaw('');
-    setTargetError('');
-    setSaveError('');
-    setStage('weighing');
-  }
 
   function startFormula(formula) {
     const lines = formula.lines
@@ -426,48 +173,23 @@ export default function StaffApp() {
       .filter(Boolean);
     if (lines.length === 0) return;
     stopSpeaking();
-    setFlow('formula');
     setCart(lines);
     setActiveIndex(0);
     setRaw('');
     setSaveError('');
+    setLastPayload(null);
     setStage('weighing');
   }
 
-  function startItem(item) {
+  function cancelWeighing() {
     stopSpeaking();
-    setFlow('single');
-    setFreeItem(item);
-    setReqInput('');
-    setReqError('');
-    setSaveError('');
-    setStage('single-target');
-  }
-
-  function startSingleWeighing() {
-    const required = parseWeight(reqInput);
-    if (required == null || required <= 0) {
-      setReqError('Enter a valid target above zero, e.g. 2.000');
-      return;
-    }
-    if (!freeItem) return;
-    stopSpeaking();
-    setFlow('single');
-    setCart([
-      {
-        uid: uid(),
-        id: freeItem.id,
-        slug: freeItem.slug,
-        name: freeItem.name,
-        names: freeItem.names,
-        required: round3(required),
-        status: 'pending',
-      },
-    ]);
+    setCart([]);
     setActiveIndex(0);
     setRaw('');
+    setSavedBill(null);
     setSaveError('');
-    setStage('weighing');
+    setLastPayload(null);
+    setStage('select');
   }
 
   function saveBill(payload) {
@@ -478,12 +200,12 @@ export default function StaffApp() {
       .then((bill) => {
         setSavedBill(bill);
         setSaving(false);
-        setStage(flow === 'formula' ? 'done' : 'complete');
+        setStage('done');
       })
       .catch((err) => {
         setSaveError(err.message);
         setSaving(false);
-        setStage(flow === 'formula' ? 'done' : 'complete');
+        setStage('done');
       });
   }
 
@@ -519,12 +241,6 @@ export default function StaffApp() {
     stopSpeaking();
     setCart([]);
     setActiveIndex(0);
-    setFreeItem(null);
-    setSelectedItemId(null);
-    setSelectedFormulaId(null);
-    setReqInput('');
-    setReqError('');
-    setTargetError('');
     setSavedBill(null);
     setSaveError('');
     setLastPayload(null);
@@ -572,34 +288,8 @@ export default function StaffApp() {
         {stage === 'select' && (
           <StaffSelect
             formulas={formulas}
-            items={items}
             itemsLoading={itemsLoading}
             onFormula={startFormula}
-            onItem={startItem}
-            onOpenBuilder={openBuilder}
-          />
-        )}
-
-        {stage === 'build' && (
-          <ItemSelection
-            items={items}
-            itemsLoading={itemsLoading}
-            formulas={formulas}
-            cart={cart}
-            selectedItemId={selectedItemId}
-            selectedFormulaId={selectedFormulaId}
-            reqInput={reqInput}
-            reqError={reqError}
-            targetError={targetError}
-            onSelectItem={selectItem}
-            onSelectFormula={selectFormula}
-            onReqInput={setReqInput}
-            onAddToCart={addToCart}
-            onRemove={removeFromCart}
-            onUpdateTarget={updateTarget}
-            onStart={beginWeighing}
-            onLoadFormula={loadFormulaIntoList}
-            onCancel={goToMenu}
           />
         )}
 
@@ -618,19 +308,6 @@ export default function StaffApp() {
           />
         )}
 
-        {stage === 'single-target' && (
-          <StaffTargetPrompt
-            item={freeItem}
-            reqInput={reqInput}
-            reqError={reqError}
-            voiceLang={voiceLang}
-            onReqInput={setReqInput}
-            onStart={startSingleWeighing}
-            onCancel={startNew}
-            onSay={() => speakItem(freeItem, voiceLang)}
-          />
-        )}
-
         {stage === 'done' && (
           <StaffDone
             bill={savedBill}
@@ -638,18 +315,6 @@ export default function StaffApp() {
             saveError={saveError}
             onRetry={retrySave}
             onAgain={startNew}
-          />
-        )}
-
-        {stage === 'complete' && (
-          <CompletionScreen
-            cart={cart}
-            savedBill={savedBill}
-            saving={saving}
-            saveError={saveError}
-            onStartNew={startNew}
-            onPrint={() => window.print()}
-            onRetry={retrySave}
           />
         )}
       </main>
