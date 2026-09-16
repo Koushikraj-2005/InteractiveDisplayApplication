@@ -32,7 +32,40 @@ const parseOptionalWeight = (value) => {
   return Number.isFinite(n) ? n : null;
 };
 
+const httpError = (status, message) => {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+};
 
+const MAX_NAME_LENGTH = 60;
+const MAX_NATIVE_LENGTH = 60;
+const MAX_FORMULA_LINES = 80;
+
+const NATIVE_FIELD_LABELS = {
+  name_hi: 'Hindi name',
+  name_bn: 'Bengali name',
+  name_ta: 'Tamil name',
+};
+
+const cleanName = (value, label) => {
+  const name = String(value || '').trim();
+  if (!name) throw httpError(400, `${label} is required`);
+  if (name.length > MAX_NAME_LENGTH) {
+    throw httpError(400, `${label} must be ${MAX_NAME_LENGTH} characters or fewer`);
+  }
+  return name;
+};
+
+app.get('/api/health', (req, res) => {
+  try {
+    db.prepare('SELECT 1 AS ok').get();
+    res.json({ ok: true, db: 'connected' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, db: 'error' });
+  }
+});
 
 const toItemJson = (row) => ({
   id: row.id,
@@ -60,9 +93,13 @@ const slugify = (text) =>
     .replace(/^-|-$/g, '') || 'item';
 
 app.post('/api/items', async (req, res) => {
-  const name = String(req.body.name || '').trim();
-  if (!name) {
-    return res.status(400).json({ error: 'Item name is required' });
+  const name = cleanName(req.body.name, 'Item name');
+
+  for (const [field, label] of Object.entries(NATIVE_FIELD_LABELS)) {
+    const val = String(req.body[field] || '').trim();
+    if (val.length > MAX_NATIVE_LENGTH) {
+      return res.status(400).json({ error: `${label} must be ${MAX_NATIVE_LENGTH} characters or fewer` });
+    }
   }
 
   const existing = db.prepare('SELECT COUNT(*) AS n FROM items WHERE name = ?').get(name);
@@ -119,6 +156,159 @@ app.delete('/api/items/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Formulas ----------
+
+const toFormulaJson = (row, lines) => ({
+  id: row.id,
+  name: row.name,
+  itemCount: row.item_count,
+  totalWeight: row.total_weight,
+  createdAt: row.created_at,
+  lines,
+});
+
+const parseFormulaBody = (body) => {
+  const name = cleanName(body.name, 'Formula name');
+
+  const rawLines = Array.isArray(body.lines) ? body.lines : [];
+  const lines = [];
+  const seenItems = new Set();
+  for (const raw of rawLines) {
+    if (lines.length >= MAX_FORMULA_LINES) break;
+    const itemId = Number(raw.itemId);
+    const requiredWeight = parseOptionalWeight(raw.requiredWeight);
+    if (!Number.isInteger(itemId) || itemId <= 0) continue;
+    if (requiredWeight == null || requiredWeight <= 0) continue;
+    if (seenItems.has(itemId)) continue;
+    seenItems.add(itemId);
+    const item = db.prepare('SELECT id, name FROM items WHERE id = ?').get(itemId);
+    if (!item) continue;
+    lines.push({
+      itemId,
+      itemName: item.name,
+      requiredWeight: Math.round(requiredWeight * 1000) / 1000,
+    });
+  }
+  if (lines.length === 0) {
+    throw httpError(400, 'Formula needs at least one valid ingredient with a weight above zero');
+  }
+  return { name, lines };
+};
+
+const formulaLinesSql =
+  'SELECT id, formula_id AS formulaId, item_id AS itemId, item_name AS itemName, required_weight AS requiredWeight, position FROM formula_lines WHERE formula_id = ? ORDER BY position ASC';
+
+app.get('/api/formulas', (req, res) => {
+  const rows = db.prepare('SELECT * FROM formulas ORDER BY name ASC').all();
+  const lineRows = db.prepare(
+    'SELECT id, formula_id AS formulaId, item_id AS itemId, item_name AS itemName, required_weight AS requiredWeight, position FROM formula_lines ORDER BY formula_id ASC, position ASC',
+  ).all();
+  const byFormula = new Map();
+  for (const line of lineRows) {
+    if (!byFormula.has(line.formulaId)) byFormula.set(line.formulaId, []);
+    byFormula.get(line.formulaId).push(line);
+  }
+  res.json(rows.map((row) => toFormulaJson(row, byFormula.get(row.id) || [])));
+});
+
+app.post('/api/formulas', (req, res) => {
+  let parsed;
+  try {
+    parsed = parseFormulaBody(req.body);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+
+  const existing = db.prepare('SELECT COUNT(*) AS n FROM formulas WHERE name = ?').get(parsed.name);
+  if (existing.n > 0) {
+    return res.status(409).json({ error: `Formula "${parsed.name}" already exists` });
+  }
+
+  const itemCount = parsed.lines.length;
+  const totalWeight =
+    Math.round(parsed.lines.reduce((sum, line) => sum + line.requiredWeight, 0) * 1000) / 1000;
+
+  const insertFormula = db.prepare(
+    'INSERT INTO formulas (name, item_count, total_weight) VALUES (?, ?, ?)',
+  );
+  const insertLine = db.prepare(
+    'INSERT INTO formula_lines (formula_id, item_id, item_name, required_weight, position) VALUES (?, ?, ?, ?, ?)',
+  );
+
+  db.exec('BEGIN');
+  try {
+    const info = insertFormula.run(parsed.name, itemCount, totalWeight);
+    const formulaId = Number(info.lastInsertRowid);
+    parsed.lines.forEach((line, index) =>
+      insertLine.run(formulaId, line.itemId, line.itemName, line.requiredWeight, index),
+    );
+    db.exec('COMMIT');
+    const row = db.prepare('SELECT * FROM formulas WHERE id = ?').get(formulaId);
+    res.status(201).json(toFormulaJson(row, parsed.lines));
+  } catch (err) {
+    db.exec('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save formula' });
+  }
+});
+
+app.put('/api/formulas/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT id FROM formulas WHERE id = ?').get(id)) {
+    return res.status(404).json({ error: 'Formula not found' });
+  }
+
+  let parsed;
+  try {
+    parsed = parseFormulaBody(req.body);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+
+  const nameDup = db
+    .prepare('SELECT COUNT(*) AS n FROM formulas WHERE name = ? AND id != ?')
+    .get(parsed.name, id);
+  if (nameDup.n > 0) {
+    return res.status(409).json({ error: `Formula "${parsed.name}" already exists` });
+  }
+
+  const itemCount = parsed.lines.length;
+  const totalWeight =
+    Math.round(parsed.lines.reduce((sum, line) => sum + line.requiredWeight, 0) * 1000) / 1000;
+
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE formulas SET name = ?, item_count = ?, total_weight = ? WHERE id = ?').run(
+      parsed.name,
+      itemCount,
+      totalWeight,
+      id,
+    );
+    db.prepare('DELETE FROM formula_lines WHERE formula_id = ?').run(id);
+    const insertLine = db.prepare(
+      'INSERT INTO formula_lines (formula_id, item_id, item_name, required_weight, position) VALUES (?, ?, ?, ?, ?)',
+    );
+    parsed.lines.forEach((line, index) =>
+      insertLine.run(id, line.itemId, line.itemName, line.requiredWeight, index),
+    );
+    db.exec('COMMIT');
+    const row = db.prepare('SELECT * FROM formulas WHERE id = ?').get(id);
+    res.json(toFormulaJson(row, db.prepare(formulaLinesSql).all(id)));
+  } catch (err) {
+    db.exec('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update formula' });
+  }
+});
+
+app.delete('/api/formulas/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM formulas WHERE id = ?').run(Number(req.params.id));
+  if (info.changes === 0) {
+    return res.status(404).json({ error: 'Formula not found' });
+  }
+  res.json({ ok: true });
+});
+
 // ---------- Weighings (bills) ----------
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -129,17 +319,32 @@ const localIsoNow = () => {
 
 app.post('/api/weighings', (req, res) => {
   const body = req.body || {};
-  const lines = Array.isArray(body.lines) ? body.lines : [];
+  const rawLines = Array.isArray(body.lines) ? body.lines : [];
+  const lines = [];
+  for (const raw of rawLines) {
+    const itemId = Number.isFinite(Number(raw.itemId)) ? Math.floor(Number(raw.itemId)) : null;
+    const name = String(raw.itemName || '').trim() || 'Item';
+    const weight = parseOptionalWeight(raw.requiredWeight);
+    if (weight == null || weight <= 0) continue;
+    lines.push({
+      itemId,
+      itemName: name.slice(0, MAX_NAME_LENGTH),
+      requiredWeight: Math.round(weight * 1000) / 1000,
+    });
+  }
   if (lines.length === 0) {
-    return res.status(400).json({ error: 'A completed weighing needs at least one line item' });
+    return res.status(400).json({
+      error: 'A completed weighing needs at least one line item with a weight above zero',
+    });
   }
 
   const itemCount = lines.length;
-  const totalWeight = lines.reduce((sum, line) => sum + (parseOptionalWeight(line.requiredWeight) || 0), 0);
+  const totalWeight = lines.reduce((sum, line) => sum + line.requiredWeight, 0);
   const weighedAt = String(body.weighedAt || localIsoNow()).slice(0, 19);
+  const formulaName = String(body.formulaName || '').trim() || null;
 
   const insertWeighing = db.prepare(
-    'INSERT INTO weighings (batch_no, weighed_at, item_count, total_weight) VALUES (?, ?, ?, ?)',
+    'INSERT INTO weighings (batch_no, weighed_at, item_count, total_weight, formula_name) VALUES (?, ?, ?, ?, ?)',
   );
   const insertLine = db.prepare(
     'INSERT INTO weighing_lines (weighing_id, item_id, item_name, required_weight) VALUES (?, ?, ?, ?)',
@@ -147,19 +352,16 @@ app.post('/api/weighings', (req, res) => {
 
   db.exec('BEGIN');
   try {
-    const info = insertWeighing.run('', weighedAt, itemCount, Math.round(totalWeight * 1000) / 1000);
+    const info = insertWeighing.run('', weighedAt, itemCount, Math.round(totalWeight * 1000) / 1000, formulaName);
     const id = Number(info.lastInsertRowid);
     const batchNo = `WS-${String(id).padStart(5, '0')}`;
     db.prepare('UPDATE weighings SET batch_no = ? WHERE id = ?').run(batchNo, id);
     for (const line of lines) {
-      const itemId = Number.isFinite(Number(line.itemId)) ? Number(line.itemId) : null;
-      const name = String(line.itemName || 'Item').trim();
-      const weight = parseOptionalWeight(line.requiredWeight) || 0;
-      insertLine.run(id, itemId, name, Math.round(weight * 1000) / 1000);
+      insertLine.run(id, line.itemId, line.itemName, line.requiredWeight);
     }
     db.exec('COMMIT');
     const bill = db.prepare('SELECT * FROM weighings WHERE id = ?').get(id);
-    res.status(201).json({ ...bill, lines });
+    res.status(201).json({ ...toBillJson(bill), lines });
   } catch (err) {
     db.exec('ROLLBACK');
     console.error(err);
@@ -171,6 +373,7 @@ const toBillJson = (row) => ({
   id: row.id,
   batchNo: row.batch_no,
   weighedAt: row.weighed_at,
+  formulaName: row.formula_name || null,
   itemCount: row.item_count,
   totalWeight: row.total_weight,
 });
@@ -258,7 +461,19 @@ app.get('/api/reports/monthly', (req, res) => {
     )
     .all(key);
 
-  res.json({ year, month, key, summary, perItem });
+  const perFormula = db
+    .prepare(
+      `SELECT formula_name AS formulaName,
+              COUNT(*) AS bills,
+              ROUND(SUM(total_weight), 3) AS totalKg
+       FROM weighings
+       WHERE substr(weighed_at, 1, 7) = ? AND formula_name IS NOT NULL
+       GROUP BY formula_name
+       ORDER BY totalKg DESC, formulaName ASC`,
+    )
+    .all(key);
+
+  res.json({ year, month, key, summary, perItem, perFormula });
 });
 
 app.get('/api/reports/yearly', (req, res) => {
@@ -301,10 +516,17 @@ app.get('/api/reports/yearly', (req, res) => {
 // ---------- Static serving (production) ----------
 
 const dist = path.join(ROOT, 'dist');
+const staffDist = path.join(ROOT, 'staff-app', 'dist');
 if (fs.existsSync(dist)) {
   app.use(express.static(dist));
+  if (fs.existsSync(staffDist)) {
+    app.get('/staff', (req, res) => {
+      res.sendFile(path.join(staffDist, 'index.html'));
+    });
+    app.use('/staff', express.static(staffDist));
+  }
   app.use((req, res, next) => {
-    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+    if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/staff')) {
       return res.sendFile(path.join(dist, 'index.html'));
     }
     next();
@@ -313,12 +535,20 @@ if (fs.existsSync(dist)) {
 
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ error: 'Server error' });
+  const status = err.status || 500;
+  res.status(status).json({ error: status === 500 ? 'Server error' : err.message });
 });
 
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Weighing server listening on http://localhost:${PORT}`);
     console.log(`DB: ${process.env.DB_PATH || path.join(__dirname, 'data.db')}`);
+  });
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use — is another server already running?`);
+      process.exit(1);
+    }
+    throw err;
   });
 }

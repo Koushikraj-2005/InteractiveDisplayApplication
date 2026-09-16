@@ -9,12 +9,14 @@ export function HistoryScreen() {
   const [openId, setOpenId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [detailError, setDetailError] = useState('');
+  const [detailLoading, setDetailLoading] = useState(false);
 
   async function load() {
     setLoading(true);
     setError('');
     try {
-      setBills(await api.getWeighings());
+      const list = await api.getWeighings();
+      setBills(Array.isArray(list) ? list : []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -26,19 +28,35 @@ export function HistoryScreen() {
     load();
   }, []);
 
+  async function retryDetail(id) {
+    setDetailError('');
+    setDetailLoading(true);
+    try {
+      setDetail(await api.getWeighing(id));
+    } catch (err) {
+      setDetailError(err.message);
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
   async function toggle(id) {
     if (openId === id) {
       setOpenId(null);
       setDetail(null);
+      setDetailError('');
       return;
     }
     setOpenId(id);
     setDetail(null);
     setDetailError('');
+    setDetailLoading(true);
     try {
       setDetail(await api.getWeighing(id));
     } catch (err) {
       setDetailError(err.message);
+    } finally {
+      setDetailLoading(false);
     }
   }
 
@@ -63,15 +81,40 @@ export function HistoryScreen() {
               >
                 <span className="num batch-no">{bill.batchNo}</span>
                 <span className="history-date">{fmtDateTime(bill.weighedAt)}</span>
+                <span className="history-formula">
+                  {bill.formulaName ? (
+                    <span className="formula-name-chip">{bill.formulaName}</span>
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
+                </span>
                 <span className="num history-items">{bill.itemCount} items</span>
                 <span className="num history-weight">{fmtWeight(bill.totalWeight)}</span>
                 <span className="history-expand">{opened ? '−' : '+'}</span>
               </button>
               {opened && (
                 <div className="history-detail">
-                  {detailError && <div className="error-text">{detailError}</div>}
+                  {detailLoading && <div className="panel-placeholder">Loading details…</div>}
+                  {detailError && (
+                    <div className="error-text">
+                      {detailError}{' '}
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => retryDetail(id)}
+                      >
+                        RETRY
+                      </button>
+                    </div>
+                  )}
                   {detail && (
-                    <table className="data-table">
+                    <>
+                      {detail.formulaName && (
+                        <div className="history-detail-formula">
+                          Formula: <b>{detail.formulaName}</b>
+                        </div>
+                      )}
+                      <table className="data-table">
                       <thead>
                         <tr>
                           <th className="col-no">No.</th>
@@ -93,6 +136,7 @@ export function HistoryScreen() {
                         ))}
                       </tbody>
                     </table>
+                    </>
                   )}
                 </div>
               )}
@@ -113,7 +157,14 @@ export function HistoryScreen() {
       </div>
       <div className="screen-sub">All stored bills, newest first. Click a batch to view its line items.</div>
 
-      {error && <div className="error-banner">Could not load history: {error}</div>}
+      {error && (
+        <div className="error-banner">
+          Could not load history: {error}{' '}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={load}>
+            RETRY
+          </button>
+        </div>
+      )}
 
       <div className="panel">
         <div className="panel-title">STORED BILLS ({bills.length})</div>

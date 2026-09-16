@@ -15,9 +15,11 @@ import { CompletionScreen } from './stages/CompletionScreen.jsx';
 import { ItemsScreen } from './screens/ItemsScreen.jsx';
 import { HistoryScreen } from './screens/HistoryScreen.jsx';
 import { ReportsScreen } from './screens/ReportsScreen.jsx';
+import { FormulasScreen } from './screens/FormulasScreen.jsx';
 
 const SCREENS = [
   { key: 'weighing', label: 'WEIGHING' },
+  { key: 'formulas', label: 'FORMULAS' },
   { key: 'history', label: 'HISTORY' },
   { key: 'reports', label: 'REPORTS' },
   { key: 'items', label: 'ITEM MASTER' },
@@ -31,22 +33,27 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsError, setItemsError] = useState('');
+  const [formulas, setFormulas] = useState([]);
+  const [formulasError, setFormulasError] = useState('');
   const [cart, setCart] = useState([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedItemId, setSelectedItemId] = useState(null);
+  const [selectedFormulaId, setSelectedFormulaId] = useState(null);
   const [reqInput, setReqInput] = useState('');
   const [reqError, setReqError] = useState('');
   const [voiceLang, setVoiceLang] = useState('en');
   const [savedBill, setSavedBill] = useState(null);
   const [billSaving, setBillSaving] = useState(false);
   const [billError, setBillError] = useState('');
+  const [billPayload, setBillPayload] = useState(null);
   const { raw, setRaw, getReading } = useWeightSource();
 
   async function loadItems(silent = false) {
     if (!silent) setItemsLoading(true);
     setItemsError('');
     try {
-      setItems(await api.getItems());
+      const list = await api.getItems();
+      setItems(Array.isArray(list) ? list : []);
     } catch (err) {
       setItemsError(err.message);
     } finally {
@@ -54,8 +61,19 @@ export default function App() {
     }
   }
 
+  async function loadFormulas() {
+    setFormulasError('');
+    try {
+      const list = await api.getFormulas();
+      setFormulas(Array.isArray(list) ? list : []);
+    } catch (err) {
+      setFormulasError(err.message);
+    }
+  }
+
   useEffect(() => {
     loadItems();
+    loadFormulas();
   }, []);
 
   useEffect(() => {
@@ -78,8 +96,39 @@ export default function App() {
 
   function selectItem(id) {
     setSelectedItemId(id);
+    setSelectedFormulaId(null);
     setReqInput('');
     setReqError('');
+  }
+
+  function selectFormula(id) {
+    setSelectedFormulaId(id);
+    setSelectedItemId(null);
+    setReqInput('');
+    setReqError('');
+  }
+
+  function loadFormula(formula) {
+    const lines = formula.lines
+      .map((line) => {
+        const item = items.find((candidate) => candidate.id === line.itemId);
+        return {
+          uid: uid(),
+          id: line.itemId,
+          slug: item ? item.slug : null,
+          name: item ? item.name : line.itemName,
+          names: item ? item.names : { en: line.itemName, hi: '', bn: '', ta: '' },
+          required: round3(line.requiredWeight),
+          status: 'pending',
+          formulaId: formula.id,
+          formulaName: formula.name,
+        };
+      })
+      .filter(Boolean);
+    if (lines.length === 0) return;
+    setCart(lines);
+    setSelectedFormulaId(null);
+    stopSpeaking();
   }
 
   function addToCart() {
@@ -139,12 +188,18 @@ export default function App() {
       requiredWeight: item.required,
     }));
     const totalWeight = round3(cart.reduce((sum, item) => sum + item.required, 0));
+    const formulaNames = new Set(
+      cart.map((item) => item.formulaName).filter((name) => Boolean(name)),
+    );
+    const formulaName = formulaNames.size === 1 ? [...formulaNames][0] : null;
+    const payload = { weighedAt: localIsoNow(), lines, totalWeight, formulaName };
+    setBillPayload(payload);
     setStage('complete');
     setSavedBill(null);
     setBillError('');
     setBillSaving(true);
     api
-      .saveWeighing({ weighedAt: localIsoNow(), lines, totalWeight })
+      .saveWeighing(payload)
       .then((bill) => {
         setSavedBill(bill);
         setBillSaving(false);
@@ -153,6 +208,33 @@ export default function App() {
         setBillError(err.message);
         setBillSaving(false);
       });
+  }
+
+  function retrySave() {
+    if (!billPayload) return;
+    setSavedBill(null);
+    setBillError('');
+    setBillSaving(true);
+    api
+      .saveWeighing(billPayload)
+      .then((bill) => {
+        setSavedBill(bill);
+        setBillSaving(false);
+      })
+      .catch((err) => {
+        setBillError(err.message);
+        setBillSaving(false);
+      });
+  }
+
+  function cancelWeighing() {
+    stopSpeaking();
+    setActiveIndex(0);
+    setRaw('');
+    setSavedBill(null);
+    setBillError('');
+    setBillPayload(null);
+    setStage('select');
   }
 
   function startNewWeighing() {
@@ -165,6 +247,7 @@ export default function App() {
     setReqError('');
     setSavedBill(null);
     setBillError('');
+    setBillPayload(null);
     setStage('select');
   }
 
@@ -177,7 +260,7 @@ export default function App() {
       <header className="app-header">
         <div className="brand">
           <span className="brand-glyph">⚖</span>
-          <span className="brand-name">WEIGHING SYSTEM</span>
+          <span className="brand-name">NAVEEN FARMS</span>
         </div>
         <div className="header-controls">
           <label className="voice-label" htmlFor="voice-lang">
@@ -225,21 +308,34 @@ export default function App() {
           </div>
         )}
 
+        {formulasError && screen === 'weighing' && (
+          <div className="error-banner">
+            Formula catalog unavailable: {formulasError}{' '}
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => loadFormulas()}>
+              RETRY
+            </button>
+          </div>
+        )}
+
         {screen === 'weighing' && (
           <>
             {stage === 'select' && (
               <ItemSelection
                 items={items}
                 itemsLoading={itemsLoading}
+                formulas={formulas}
                 cart={cart}
                 selectedItemId={selectedItemId}
+                selectedFormulaId={selectedFormulaId}
                 reqInput={reqInput}
                 reqError={reqError}
                 onSelectItem={selectItem}
+                onSelectFormula={selectFormula}
                 onReqInput={setReqInput}
                 onAddToCart={addToCart}
                 onRemove={removeFromCart}
                 onStart={beginWeighing}
+                onLoadFormula={loadFormula}
               />
             )}
 
@@ -254,6 +350,7 @@ export default function App() {
                 voiceLang={voiceLang}
                 onReading={setRaw}
                 onNext={handleNext}
+                onCancel={cancelWeighing}
               />
             )}
 
@@ -265,6 +362,8 @@ export default function App() {
                 saveError={billError}
                 onStartNew={startNewWeighing}
                 onPrint={printReport}
+                onViewHistory={() => setScreen('history')}
+                onRetry={retrySave}
               />
             )}
           </>
@@ -273,8 +372,21 @@ export default function App() {
         {screen === 'items' && (
           <ItemsScreen
             items={items}
+            itemsLoading={itemsLoading}
             itemsError={itemsError}
-            onItemsChanged={() => loadItems(true)}
+            onItemsChanged={() => {
+              loadItems();
+              loadFormulas();
+            }}
+          />
+        )}
+
+        {screen === 'formulas' && (
+          <FormulasScreen
+            items={items}
+            formulas={formulas}
+            formulasError={formulasError}
+            onFormulasChanged={loadFormulas}
           />
         )}
 

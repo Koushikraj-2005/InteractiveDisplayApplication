@@ -1,11 +1,15 @@
 import { fmtDateTime, fmtWeight } from '../lib/weights.js';
 
-export function CompletionScreen({ cart, savedBill, saving, saveError, onStartNew, onPrint }) {
+export function CompletionScreen({ cart, savedBill, saving, saveError, onStartNew, onPrint, onViewHistory, onRetry }) {
   const batchLabel = savedBill
     ? savedBill.batchNo
     : saving
       ? 'SAVING RECORD…'
       : `WEIGH-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+  const formulaNames = new Set(
+    cart.map((item) => item.formulaName).filter((name) => Boolean(name)),
+  );
+  const formulaLabel = formulaNames.size === 1 ? [...formulaNames][0] : null;
 
   return (
     <section className="stage">
@@ -17,11 +21,19 @@ export function CompletionScreen({ cart, savedBill, saving, saveError, onStartNe
               Batch: {batchLabel}
               {savedBill ? ` · Recorded ${fmtDateTime(savedBill.weighedAt)}` : ''}
             </div>
+            {formulaLabel && (
+              <div className="formula-label">Formula: {formulaLabel}</div>
+            )}
             {(saving || saveError) && (
               <div className={`save-state ${saveError ? 'save-error' : 'save-saved'}`}>
                 {saveError
-                  ? `Not stored: ${saveError}`
+                  ? `Not stored: ${saveError} `
                   : 'Storing this weighing in the records…'}
+                {saveError && onRetry && (
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={onRetry}>
+                    RETRY SAVE
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -62,6 +74,11 @@ export function CompletionScreen({ cart, savedBill, saving, saveError, onStartNe
           <button type="button" className="btn btn-secondary" onClick={onPrint}>
             PRINT REPORT
           </button>
+          {onViewHistory && (
+            <button type="button" className="btn btn-secondary" onClick={onViewHistory}>
+              VIEW HISTORY
+            </button>
+          )}
           <button type="button" className="btn btn-primary btn-lg" onClick={onStartNew}>
             START NEW WEIGHING
           </button>
