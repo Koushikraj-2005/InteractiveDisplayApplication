@@ -17,6 +17,7 @@
   --blue: #2f5ea3;
   --blue-hover: #28508c;
   --blue-border: #274f8c;
+  --accent: #2f5ea3;
   --green: #1f7a33;
   --amber: #a15c00;
   --red: #b02024;
@@ -35,6 +36,9 @@ body {
   background: var(--bg);
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
+  /* Stop the rubber-band scroll on a phone revealing empty space below the
+     app, and stop a sideways swipe from navigating the kiosk back a page. */
+  overscroll-behavior: none;
 }
 
 button,
@@ -45,7 +49,10 @@ input {
 .app {
   max-width: 1280px;
   margin: 0 auto;
+  /* 100dvh follows the mobile browser chrome; 100vh overflowed on phones and
+     pushed the bottom of the screen off-canvas. */
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -55,13 +62,17 @@ input {
 .app-header {
   background: var(--header-bg);
   border-bottom: 2px solid var(--header-border);
-  height: 48px;
+  /* min-height, not height: the connection bar wraps on narrow screens and a
+     fixed height clipped the wrapped rows, hiding the mode toggle. */
+  min-height: 48px;
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 6px 16px;
   justify-content: space-between;
+  gap: 12px;
   color: #e7edf4;
   flex: 0 0 auto;
+  flex-wrap: wrap;
 }
 
 .header-controls {
@@ -119,6 +130,7 @@ input {
   font-weight: 700;
   letter-spacing: 0.08em;
   color: #cfe1f0;
+  flex-shrink: 0;
 }
 
 .mode-dot {
@@ -126,6 +138,17 @@ input {
   height: 8px;
   border-radius: 50%;
   background: #f2b33d;
+  flex: 0 0 auto;
+}
+
+.mode-dot.on {
+  background: #46c264;
+  box-shadow: 0 0 6px rgba(70, 194, 100, 0.8);
+}
+
+.mode-dot.err {
+  background: #e2686d;
+  box-shadow: 0 0 6px rgba(226, 104, 109, 0.8);
 }
 
 /* ---------- Workspace ---------- */
@@ -664,6 +687,17 @@ input {
   text-align: right;
 }
 
+/* The row the operator is on right now. Driven by class from the terminal so
+   the queue reads as a progress list on a small screen. */
+.queue-row.current {
+  background: #e6f0fb;
+  box-shadow: inset 3px 0 0 var(--accent, #1a63b8);
+}
+
+.queue-row.current .queue-status {
+  color: var(--accent, #1a63b8);
+}
+
 .queue-status {
   text-align: right;
   font-size: 10px;
@@ -749,6 +783,35 @@ input {
 
 .speaker-btn:hover {
   background: #eef2f7;
+}
+
+/* ---------- Weight band alert toggle ---------- */
+
+.alert-toggle {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  color: #9fb3c7;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.alert-toggle.on {
+  border-color: #2f6f4f;
+  color: #7ee2a8;
+}
+
+.alert-toggle.off {
+  border-color: #6b3a3a;
+  color: #d98c8c;
+}
+
+.alert-toggle:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 /* ---------- Digital scale ---------- */
@@ -1360,6 +1423,23 @@ input {
 
   .queue {
     font-size: 11.5px;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .data-table {
+    font-size: 12px;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 6px 5px;
+  }
+
+  .crash-panel {
+    padding: 16px;
   }
 }
 
@@ -2154,6 +2234,212 @@ input {
   }
 }
 
+/* ---------- Scale connection (mode toggle + USB port picker) ---------- */
+
+.scale-conn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.mode-toggle {
+  display: inline-flex;
+  border: 1px solid #3d5570;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #1d2f43;
+  /* The toggle is the primary control and must never be compressed or pushed
+     out of the bar, whatever else is on screen. */
+  flex-shrink: 0;
+}
+
+.mode-toggle-btn {
+  border: 0;
+  background: transparent;
+  color: #9fb3c7;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.mode-toggle-btn + .mode-toggle-btn {
+  border-left: 1px solid #3d5570;
+}
+
+.mode-toggle-btn:hover:not(.active):not(:disabled) {
+  background: #26394f;
+  color: #dbe6f0;
+}
+
+.mode-toggle-btn.active {
+  background: var(--blue);
+  color: #ffffff;
+}
+
+/* Locked during a weighing: the active mode stays readable, the other is
+   visibly unavailable rather than silently ignoring the tap. */
+.mode-toggle-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.mode-toggle-btn.active:disabled {
+  opacity: 0.75;
+}
+
+.scale-conn-body {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  /* Absorbs the squeeze so the port list truncates instead of forcing the
+     toggle onto a second row. */
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.scale-port-select,
+.scale-baud-select {
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  font-size: 12px;
+  padding: 5px 6px;
+  color: var(--text);
+  max-width: 260px;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.scale-baud-select {
+  max-width: 96px;
+  flex-shrink: 0;
+}
+
+.scale-conn-status {
+  font-size: 11px;
+  color: #9fb3c7;
+  font-family: var(--mono);
+  max-width: 320px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scale-conn-status .err {
+  color: #ff9ba0;
+  font-weight: 700;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: #4a6480;
+  color: #cfe1f0;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: #2a3f57;
+}
+
+/* ---------- Live scale readout ---------- */
+
+.metric-device {
+  border-color: #b7c6d6;
+  background: #f5f8fb;
+}
+
+.live-reading {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--mono);
+}
+
+.live-reading-value {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #12324f;
+  line-height: 1.1;
+}
+
+.live-reading-value.muted {
+  color: #9aa7b4;
+}
+
+.live-stable-badge {
+  align-self: center;
+  margin-left: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #1d6b2d;
+  background: #d7eedb;
+  border: 1px solid #8fca95;
+  border-radius: 2px;
+  padding: 2px 5px;
+}
+
+.device-error {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #8a1f24;
+  background: #fbebeb;
+  border: 1px solid #dc9094;
+  border-radius: 2px;
+  padding: 6px 8px;
+}
+
+.status-device {
+  border-color: #dc9094;
+  background: #fbebeb;
+  color: #a01c20;
+}
+
+.terminal-scale b {
+  font-weight: 700;
+}
+
+.terminal-scale.online b {
+  color: #6fd68c;
+}
+
+.terminal-scale.offline b,
+.terminal-scale.unavailable b,
+.terminal-scale.reconnecting b,
+.terminal-scale.connecting b {
+  color: #f0b95c;
+}
+
+.b-warn {
+  color: #f0b95c !important;
+}
+
+@media (max-width: 900px) {
+  .scale-conn {
+    justify-content: flex-start;
+  }
+
+  .scale-conn-status {
+    max-width: none;
+    width: 100%;
+  }
+
+  .scale-port-select {
+    max-width: none;
+    flex: 1 1 180px;
+  }
+}
+
 /* ---------- Navigation & validation extras ---------- */
 
 .btn-danger {
@@ -2176,6 +2462,25 @@ input {
 }
 
 @media (max-width: 640px) {
+  /* Stack the bar instead of letting it wrap into a clipped row. The toggle
+     keeps its own line so it is always visible. */
+  .scale-conn {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .scale-conn-body {
+    width: 100%;
+  }
+
+  .scale-port-select {
+    flex: 1 1 150px;
+  }
+
+  .scale-conn-status {
+    max-width: 100%;
+  }
+
   .panel-footer {
     flex-direction: column;
     gap: 8px;
@@ -2184,4 +2489,111 @@ input {
   .panel-footer .btn {
     width: 100%;
   }
+}
+/* ---------- Crash screen (AppErrorBoundary) ---------- */
+.crash-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 24px;
+  background: #10151c;
+  color: #e8edf4;
+}
+
+.crash-panel {
+  width: 100%;
+  max-width: 560px;
+  padding: 24px;
+  border: 1px solid #7a2626;
+  border-radius: 12px;
+  background: #171d26;
+}
+
+.crash-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #ff8f8f;
+}
+
+.crash-app {
+  margin: 8px 0 0;
+  color: #b9c4d2;
+}
+
+.crash-message {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #22161a;
+  color: #ffd7d7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.crash-stack {
+  max-height: 30vh;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #0d1117;
+  color: #8fa0b3;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.crash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.crash-actions .btn {
+  flex: 1 1 160px;
+}
+
+.crash-hint {
+  margin: 16px 0 0;
+  color: #8fa0b3;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 480px) {
+  .crash-actions .btn {
+    flex: 1 1 100%;
+  }
+}
+
+/* ---------- Measured vs target drift ---------- */
+.drift {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.drift.over {
+  background: rgba(224, 108, 117, 0.16);
+  color: #ff9a9a;
+}
+
+.drift.under {
+  background: rgba(224, 168, 108, 0.16);
+  color: #ffc98c;
+}
+
+/* ---------- Resumed weighing notice ---------- */
+.resume-banner {
+  background: #fff6e5;
+  border-color: #e0a94f;
+  color: #7a4d05;
+}
+
+.resume-banner .btn {
+  flex: 0 0 auto;
 }

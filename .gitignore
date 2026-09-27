@@ -6,3 +6,5 @@ server/data.db-shm
 server/data.db-wal
 server/storage/tts/
 android/
+# esbuild temp chunks emitted by the staff vite config
+staff-app/vite.config.ts.timestamp-*.mjs
