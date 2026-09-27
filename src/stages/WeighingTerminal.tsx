@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { ScaleReading } from '../../shared/scale.ts';
 import { alertsEnabled, primeAlertAudio, toggleAlertsEnabled } from '../../shared/alerts.ts';
 import { useVerdictAlert } from '../../shared/useVerdictAlert.ts';
+import { stopNameLoop as stopUnderweightName } from '../../shared/multilingualName.ts';
+import { useUnderweightName } from '../../shared/useUnderweightName.ts';
 import {
   fmtSignedDiff,
   fmtWeight,
@@ -9,7 +11,7 @@ import {
   parseWeight,
   type ReadingVerdict,
 } from '../lib/weights.ts';
-import { speakItem, voiceEngine } from '../lib/tts.ts';
+import { speakItem, stopSpeaking, voiceEngine } from '../lib/tts.ts';
 import { localizedName, VOICE_LANGS } from '../lib/items.ts';
 import { Scale } from '../components/Scale.tsx';
 import type { DeviceState, WeightMode } from '../lib/weightSource.ts';
@@ -77,9 +79,24 @@ export function WeighingTerminal({
 
   useEffect(() => {
     if (!activeItem) return;
+    // A deliberate repeat (new item, new language) wins over the loop: it stops
+    // the cycle so the two never talk over each other.
+    stopUnderweightName();
     speakItem(activeItem, voiceLang);
     if (!isLive) inputRef.current?.focus();
   }, [activeItem, voiceLang, isLive]);
+
+  // Underweight only: the name repeats in every language until the target is
+  // reached, which is when `status.type` flips and the loop stops itself.
+  useUnderweightName({
+    item: activeItem,
+    langs: VOICE_LANGS.map((lang) => lang.code),
+    preferredLang: voiceLang,
+    underweight: status.type === 'underweight',
+    enabled: alertsOn,
+    speak: (item, lang, onDone) => speakItem(item as CartItem, lang as LangCode, onDone),
+    stop: stopSpeaking,
+  });
 
   // Audible under/over/accepted cues, and the first tap also unlocks the
   // audio context that browsers keep suspended until a user gesture.

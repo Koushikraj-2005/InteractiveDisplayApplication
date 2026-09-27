@@ -23,6 +23,15 @@ const LANG_CODES: Record<string, string> = {
 const audioCache = new Map<string, HTMLAudioElement>();
 let currentAudio: HTMLAudioElement | null = null;
 let speakTimer: number | null = null;
+let completionTimer: number | null = null;
+let pendingDone: (() => void) | null = null;
+
+/**
+ * A clip that never reports an end would freeze the multilingual repeat loop
+ * halfway through, so every attempt is bounded. Comfortably longer than the
+ * longest name clip, short enough that a stalled file is not silent for long.
+ */
+const COMPLETION_TIMEOUT_MS = 8000;
 
 if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
   window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
@@ -40,13 +49,44 @@ function pickVoice(langCode: string): SpeechSynthesisVoice | null {
   );
 }
 
-function speakWithSystemVoice(text: string, lang: string): void {
+/** Idempotent: the clip's own end event and the watchdog both call this. */
+function finishAttempt(): void {
+  const done = pendingDone;
+  pendingDone = null;
+  if (completionTimer != null) {
+    window.clearTimeout(completionTimer);
+    completionTimer = null;
+  }
+  if (!done) return;
+  try {
+    done();
+  } catch {
+    // A throwing listener must not wedge the repeat loop.
+  }
+}
+
+/**
+ * Arms the completion callback and its watchdog. Without the watchdog a clip
+ * that never fires `ended` (missing file, stalled decode) would freeze the
+ * multilingual repeat loop part-way through and go quiet for good.
+ */
+function armAttempt(onDone: (() => void) | undefined): void {
+  clearCompletionTimer();
+  pendingDone = onDone ?? null;
+  if (!onDone) return;
+  completionTimer = window.setTimeout(finishAttempt, COMPLETION_TIMEOUT_MS);
+}
+
+function speakWithSystemVoice(text: string, lang: string, onDone: () => void): void {
   const code = LANG_CODES[lang] || 'en-US';
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = code;
   const voice = pickVoice(code);
   if (voice) utterance.voice = voice;
   utterance.rate = 0.95;
+  armAttempt(onDone);
+  utterance.onend = finishAttempt;
+  utterance.onerror = finishAttempt;
   // The small delay lets a cancelled audio file stop before the fallback
   // voice starts. The handle is kept so stopSpeaking() can cancel it —
   // otherwise navigating away mid-delay leaves the name spoken afterwards.
@@ -57,6 +97,7 @@ function speakWithSystemVoice(text: string, lang: string): void {
       window.speechSynthesis.speak(utterance);
     } catch {
       // speech synthesis unavailable
+      finishAttempt();
     }
   }, 80);
 }
@@ -68,6 +109,13 @@ function clearSpeakTimer(): void {
   }
 }
 
+function clearCompletionTimer(): void {
+  if (completionTimer != null) {
+    window.clearTimeout(completionTimer);
+    completionTimer = null;
+  }
+}
+
 function getCached(lang: string, id: string): HTMLAudioElement {
   const key = `${lang}/${id}`;
   let element = audioCache.get(key);
@@ -76,6 +124,7 @@ function getCached(lang: string, id: string): HTMLAudioElement {
     element.preload = 'auto';
     element.onended = () => {
       if (currentAudio === element) currentAudio = null;
+      finishAttempt();
     };
     audioCache.set(key, element);
   }
@@ -121,28 +170,49 @@ export function disposeAudioCache(): void {
   audioCache.clear();
 }
 
-export function speakItem(item: NameBearing | null | undefined, lang: LangCode = 'en'): void {
-  if (!item) return;
+/**
+ * Speaks one item name in one language.
+ *
+ * `onDone` fires exactly once when the name finishes — by the clip's `ended`
+ * event, the system voice's `end`, or the completion watchdog — so callers
+ * that chain languages in sequence can wait for it instead of guessing at
+ * timings. It never fires after `stopSpeaking()`.
+ */
+export function speakItem(
+  item: NameBearing | null | undefined,
+  lang: LangCode = 'en',
+  onDone?: () => void,
+): void {
+  if (!item) {
+    onDone?.();
+    return;
+  }
   stopSpeaking();
 
   const text = localizedName(item, lang);
+  // Every path below hands the caller the same completion, so a name always
+  // reports exactly one finish no matter which route produced the sound.
+  const complete = (): void => onDone?.();
   if (!item.slug) {
-    speakWithSystemVoice(text, lang);
+    speakWithSystemVoice(text, lang, complete);
     return;
   }
   let element: HTMLAudioElement;
   try {
     element = getCached(lang, item.slug);
   } catch {
-    speakWithSystemVoice(text, lang);
+    speakWithSystemVoice(text, lang, complete);
     return;
   }
   currentAudio = element;
+  armAttempt(complete);
 
   const fallback = () => {
     if (currentAudio !== element) return;
     currentAudio = null;
-    speakWithSystemVoice(text, lang);
+    // The clip is unusable; speak the name with the system voice instead,
+    // handing the caller's completion to that attempt.
+    speakWithSystemVoice(text, lang, complete);
   };
 
   // Start muted: a play() that is rejected by autoplay policy is recoverable,
@@ -180,6 +250,10 @@ export function voiceEngine(): string {
 
 export function stopSpeaking(): void {
   clearSpeakTimer();
+  // Drop the completion too: a cancelled clip must not advance a caller that
+  // is chaining languages, or the loop would skip a language on every stop.
+  clearCompletionTimer();
+  pendingDone = null;
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     window.speechSynthesis.cancel();
   }
