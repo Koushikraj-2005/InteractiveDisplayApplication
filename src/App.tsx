@@ -332,7 +332,7 @@ export default function App() {
         <header className="app-header">
           <div className="brand">
             <span className="brand-glyph">⚖</span>
-            <span className="brand-name">NAVEEN FARMS</span>
+            <span className="brand-name">NAVEEN POULTRY FARMS</span>
           </div>
         </header>
         <main>
@@ -347,7 +347,7 @@ export default function App() {
       <header className="app-header">
         <div className="brand">
           <span className="brand-glyph">⚖</span>
-          <span className="brand-name">NAVEEN FARMS</span>
+          <span className="brand-name">NAVEEN POULTRY FARMS</span>
         </div>
         <div className="header-controls">
           {isNativeApp() && serverOrigin && (

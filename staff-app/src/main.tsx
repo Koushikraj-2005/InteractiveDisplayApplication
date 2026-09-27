@@ -12,7 +12,7 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <AppErrorBoundary appName="NAVEEN FARMS — Staff terminal">
+    <AppErrorBoundary appName="NAVEEN POULTRY FARMS — Staff terminal">
       <App />
     </AppErrorBoundary>
   </StrictMode>,

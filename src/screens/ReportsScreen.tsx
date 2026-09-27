@@ -94,7 +94,7 @@ function buildOverviewDoc(o: OverviewReport): ReportDoc {
         totals: ['Grand Total', String(o.totals.bills), String(o.totals.items), fmtWeight(o.totals.totalKg)],
       },
     ],
-    csvFilename: 'naveen-farms-overview.csv',
+    csvFilename: 'naveen-poultry-farms-overview.csv',
     csvLines: [
       ['Month', 'Bills', 'Items', 'Total Weight (kg)'],
       ...months.map((e) => [monthLabel(e.month), e.bills, e.items, e.totalKg.toFixed(3)]),
@@ -142,7 +142,7 @@ function buildMonthlyDoc(m: MonthlyReport, yy: number, mm: number): ReportDoc {
         note: m.perFormula.length === 0 ? 'No formula-based weighings were recorded during this period.' : null,
       },
     ],
-    csvFilename: `naveen-farms-monthly-${yy}-${String(mm).padStart(2, '0')}.csv`,
+    csvFilename: `naveen-poultry-farms-monthly-${yy}-${String(mm).padStart(2, '0')}.csv`,
     csvLines: [
       ['Item', 'Times Weighed', 'Total Weight (kg)'],
       ...m.perItem.map((e) => [e.itemName, e.times, e.totalKg.toFixed(3)]),
@@ -175,7 +175,7 @@ function buildYearlyDoc(y: YearlyReport, yr: number): ReportDoc {
         totals: [`Year Total ${yr}`, String(y.totals.bills), String(y.totals.items), fmtWeight(y.totals.totalKg)],
       },
     ],
-    csvFilename: `naveen-farms-yearly-${yr}.csv`,
+    csvFilename: `naveen-poultry-farms-yearly-${yr}.csv`,
     csvLines: [
       ['Month', 'Bills', 'Items', 'Total Weight (kg)'],
       ...y.months.map((e) => [MONTH_NAMES[Number(e.month.slice(5, 7)) - 1], e.bills, e.items, e.totalKg.toFixed(3)]),
@@ -218,7 +218,7 @@ function PrintReport({ doc, onClose }: PrintReportProps) {
           <div className="print-company">
             <div className="print-company-mark">NF</div>
             <div>
-              <div className="print-company-name">Naveen Farms</div>
+              <div className="print-company-name">Naveen Poultry Farms</div>
               <div className="print-company-sub">Industrial Weighing &amp; Packing Solutions</div>
             </div>
           </div>
@@ -290,7 +290,7 @@ function PrintReport({ doc, onClose }: PrintReportProps) {
               <span>Authorized by</span>
             </div>
           </div>
-          <div className="print-footer-note">Naveen Farms — Plant Weighbridge Records · All weights in kilograms, rounded to 3 decimals</div>
+          <div className="print-footer-note">Naveen Poultry Farms — Plant Weighbridge Records · All weights in kilograms, rounded to 3 decimals</div>
         </footer>
       </div>
     </div>,

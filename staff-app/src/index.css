@@ -118,8 +118,11 @@ input {
 .brand-name {
   font-weight: 700;
   letter-spacing: 0.09em;
-  font-size: 15px;
-  color: #ffffff;
+  /* 19px bold qualifies as WCAG large text, which is what lets a red pass on
+     the dark navy header: no red reaches 4.5:1 against #24384f, but this one
+     clears the 3:1 large-text bar at 3.96:1. */
+  font-size: 19px;
+  color: #ff5c5c;
 }
 
 .mode-badge {
@@ -1993,7 +1996,7 @@ input {
   font-size: 19px;
   font-weight: 800;
   letter-spacing: 0.06em;
-  color: #24384f;
+  color: #c62828;
 }
 
 .print-company-sub {
