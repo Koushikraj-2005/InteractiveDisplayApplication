@@ -510,7 +510,7 @@ export function ReportsScreen() {
             ) : !overview ? (
               <div className="panel-placeholder">Loading report…</div>
             ) : (
-              <table className="data-table">
+              <table className="data-table report-table">
                 <thead>
                   <tr>
                     <th>Month</th>
@@ -613,7 +613,7 @@ export function ReportsScreen() {
             ) : monthly.perItem.length === 0 ? (
               <div className="panel-placeholder">No weighings recorded for this month.</div>
             ) : (
-              <table className="data-table">
+              <table className="data-table report-table">
                 <thead>
                   <tr>
                     <th>Item</th>
@@ -656,7 +656,7 @@ export function ReportsScreen() {
             ) : monthly.perFormula.length === 0 ? (
               <div className="panel-placeholder">No formula-based weighings this month.</div>
             ) : (
-              <table className="data-table">
+              <table className="data-table report-table">
                 <thead>
                   <tr>
                     <th>Formula</th>
@@ -733,7 +733,7 @@ export function ReportsScreen() {
             ) : !yearly ? (
               <div className="panel-placeholder">Loading report…</div>
             ) : (
-              <table className="data-table">
+              <table className="data-table report-table">
                 <thead>
                   <tr>
                     <th>Month</th>

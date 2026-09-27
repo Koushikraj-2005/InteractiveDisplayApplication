@@ -555,6 +555,29 @@ input {
   border-bottom: none;
 }
 
+/* Vertical column separators. The report tables hold a name column next to
+   several right-aligned figures, and without a rule between them it is easy to
+   read a number against the wrong heading. Scoped to .report-table because the
+   Item Master list reuses .data-table as stacked cards on a phone, where
+   vertical rules would be meaningless. */
+.report-table th + th,
+.report-table td + td {
+  border-left: 1px solid var(--border);
+}
+
+/* The header row keeps the same rule so the columns line up with the body. */
+.report-table thead th {
+  border-left-color: #c8ced6;
+}
+
+.report-table thead th:first-child {
+  border-left: none;
+}
+
+.report-table tbody td:first-child {
+  border-left: none;
+}
+
 .data-table .num {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
