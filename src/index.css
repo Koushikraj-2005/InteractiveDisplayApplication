@@ -22,6 +22,27 @@
   --amber: #a15c00;
   --red: #b02024;
   --mono: "Consolas", "Menlo", "DejaVu Sans Mono", ui-monospace, monospace;
+  /* Multiplied into every font-size in this file. The four steps are chosen in
+     shared/fontScale.ts and applied as a data-font-scale attribute on <html>. */
+  --font-scale: 1;
+}
+
+/* Text size steps. Kept as attribute selectors rather than an inline custom
+   property so @media print can still force the normal size. */
+:root[data-font-scale='sm'] {
+  --font-scale: 0.9;
+}
+
+:root[data-font-scale='md'] {
+  --font-scale: 1;
+}
+
+:root[data-font-scale='lg'] {
+  --font-scale: 1.15;
+}
+
+:root[data-font-scale='xl'] {
+  --font-scale: 1.3;
 }
 
 html,
@@ -31,7 +52,7 @@ body {
 
 body {
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  font-size: 14px;
+  font-size:calc(14px * var(--font-scale));
   color: var(--text);
   background: var(--bg);
   line-height: 1.4;
@@ -57,6 +78,20 @@ input {
   flex-direction: column;
 }
 
+/* ---------- App footer ---------- */
+
+/* margin-top: auto pins the credit to the bottom of the viewport on short
+   screens, because .app is a full-height flex column and <main> has no flex
+   growth of its own. .no-print keeps it off printed output. */
+.app-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding: 12px 10px 14px;
+  text-align: center;
+  color: var(--muted);
+  font-size: calc(12px * var(--font-scale));
+}
+
 /* ---------- App header ---------- */
 
 .app-header {
@@ -67,7 +102,12 @@ input {
   min-height: 48px;
   display: flex;
   align-items: center;
-  padding: 6px 16px;
+  /* The app is edge-to-edge (targetSdk 36), so the header starts at the very
+     top of the screen, underneath the status bar. Without adding the real inset
+     the farm name renders behind the clock. The 10px is a normal gap below the
+     status bar; the inset is the status bar's own height. Falls back to 0 in a
+     desktop browser, where there is no status bar to clear. */
+  padding: calc(10px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 16px 10px;
   justify-content: space-between;
   gap: 12px;
   color: #e7edf4;
@@ -79,30 +119,17 @@ input {
   display: flex;
   align-items: center;
   gap: 10px;
+  /* Wraps instead of overflowing. Without this the row is as wide as its
+     contents (519px on a 392px phone), the mode toggle is pushed off the side
+     of the screen and the whole page scrolls sideways into empty space — the
+     exact thing .mode-toggle's own comment says must never happen. min-width:0
+     lets the row shrink below its content so .app-header can wrap it down to
+     its own line instead. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
-.voice-label {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: #9fb3c7;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.lang-select {
-  background: #1c2d41;
-  color: #e6edf4;
-  border: 1px solid #3a5270;
-  border-radius: 3px;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 6px;
-}
-
-.lang-select:focus {
-  outline: none;
-  border-color: #6c93bd;
-}
 
 .brand {
   display: flex;
@@ -111,7 +138,28 @@ input {
 }
 
 .brand-glyph {
-  font-size: 16px;
+  font-size:calc(16px * var(--font-scale));
+  color: #9fc6e8;
+}
+
+/* Stacks the owner line above the farm name, so the farm still reads first. */
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  /* The owner line and the farm name sit flush at 1.2 line-height and read as
+     one smudged block; a small gap keeps them distinct without growing the
+     header much. */
+  gap: 2px;
+}
+
+/* The owner's name uses the header's light blue rather than the farm's red: at
+   11px it is small text and needs the 4.5:1 bar, which #ff5c5c does not reach
+   on the #24384f header. #9fc6e8 clears it at 6.8:1. */
+.brand-owner {
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  font-size:calc(11px * var(--font-scale));
   color: #9fc6e8;
 }
 
@@ -121,7 +169,7 @@ input {
   /* 19px bold qualifies as WCAG large text, which is what lets a red pass on
      the dark navy header: no red reaches 4.5:1 against #24384f, but this one
      clears the 3:1 large-text bar at 3.96:1. */
-  font-size: 19px;
+  font-size:calc(19px * var(--font-scale));
   color: #ff5c5c;
 }
 
@@ -129,7 +177,7 @@ input {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.08em;
   color: #cfe1f0;
@@ -165,7 +213,7 @@ input {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 16px;
+  font-size:calc(16px * var(--font-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   color: #1c2b3d;
@@ -175,7 +223,7 @@ input {
 
 .screen-sub {
   color: var(--muted);
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--font-scale));
   margin-bottom: 12px;
 }
 
@@ -188,19 +236,19 @@ input {
   color: #a01c20;
   border-radius: 3px;
   padding: 9px 12px;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   margin-bottom: 12px;
 }
 
 .btn-sm {
   padding: 4px 9px;
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
 }
 
 .refresh-btn {
   margin-left: auto;
   padding: 5px 12px;
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -226,7 +274,7 @@ input {
   border: none;
   border-bottom: 2px solid transparent;
   padding: 10px 16px;
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.05em;
   color: #55606e;
@@ -261,7 +309,7 @@ input {
   background: var(--panel-head);
   border-bottom: 1px solid var(--border);
   font-weight: 700;
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--font-scale));
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: #4d5866;
@@ -270,13 +318,13 @@ input {
 .panel-sub {
   padding: 6px 10px 3px;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--font-scale));
   border-bottom: 1px solid #eceff2;
 }
 
 .panel-placeholder {
   color: #8a93a0;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   padding: 16px 8px;
 }
 
@@ -324,7 +372,7 @@ input {
   border-bottom: 1px solid #e6e9ed;
   background: transparent;
   cursor: pointer;
-  font-size: 13.5px;
+  font-size:calc(13.5px * var(--font-scale));
   color: var(--text);
   text-align: left;
 }
@@ -340,7 +388,7 @@ input {
 
 .item-code {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size:calc(10.5px * var(--font-scale));
   color: var(--muted);
 }
 
@@ -364,7 +412,7 @@ input {
 }
 
 .field-label {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
@@ -372,14 +420,14 @@ input {
 }
 
 .selected-name {
-  font-size: 22px;
+  font-size:calc(22px * var(--font-scale));
   font-weight: 800;
   color: #1c2b3d;
 }
 
 .error-text {
   color: var(--red);
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
 }
 
 /* ---------- Inputs ---------- */
@@ -394,7 +442,7 @@ input {
   border: 1px solid var(--border-strong);
   border-radius: 3px;
   padding: 7px 9px;
-  font-size: 20px;
+  font-size:calc(20px * var(--font-scale));
   font-weight: 600;
   font-family: var(--mono);
   text-align: right;
@@ -433,7 +481,7 @@ input {
   display: inline-block;
   border-radius: 3px;
   border: 1px solid transparent;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   font-weight: 600;
   padding: 8px 14px;
   cursor: pointer;
@@ -463,7 +511,7 @@ input {
 
 .btn-lg {
   padding: 11px 20px;
-  font-size: 14px;
+  font-size:calc(14px * var(--font-scale));
   letter-spacing: 0.03em;
 }
 
@@ -483,13 +531,13 @@ input {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
 }
 
 .data-table th {
   background: #eef0f3;
   color: #55606e;
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 8px 10px;
@@ -537,7 +585,7 @@ input {
 
 .chip {
   display: inline-block;
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 3px 7px;
@@ -563,7 +611,7 @@ input {
   border: 1px solid transparent;
   color: #8b94a0;
   cursor: pointer;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   padding: 2px 6px;
   border-radius: 3px;
 }
@@ -596,7 +644,7 @@ input {
 }
 
 .terminal-title {
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -606,7 +654,7 @@ input {
   display: flex;
   gap: 16px;
   margin-left: auto;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   color: #9fb3c7;
 }
 
@@ -638,7 +686,7 @@ input {
   gap: 2px;
   align-items: center;
   padding: 6px 8px;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   border-bottom: 1px solid #e8eaee;
   color: #3d4651;
 }
@@ -666,7 +714,7 @@ input {
 }
 
 .queue-item-local {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   opacity: 0.72;
 }
 
@@ -678,7 +726,7 @@ input {
 .queue-head {
   background: #eef0f3;
   color: #55606e;
-  font-size: 10.5px;
+  font-size:calc(10.5px * var(--font-scale));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -703,7 +751,7 @@ input {
 
 .queue-status {
   text-align: right;
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.03em;
   white-space: nowrap;
@@ -743,14 +791,14 @@ input {
 }
 
 .current-item-label {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   letter-spacing: 0.1em;
   color: var(--muted);
   font-weight: 700;
 }
 
 .current-item-name {
-  font-size: 44px;
+  font-size:calc(44px * var(--font-scale));
   font-weight: 800;
   color: #1a2736;
   letter-spacing: 0.02em;
@@ -758,14 +806,14 @@ input {
 }
 
 .current-item-local {
-  font-size: 19px;
+  font-size:calc(19px * var(--font-scale));
   font-weight: 600;
   color: #5a6673;
   margin-top: 2px;
 }
 
 .current-item-required {
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   color: #55606e;
   display: flex;
   align-items: center;
@@ -780,7 +828,7 @@ input {
   border-radius: 3px;
   cursor: pointer;
   padding: 2px 6px;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   line-height: 1;
 }
 
@@ -796,7 +844,7 @@ input {
   border-radius: 3px;
   color: #9fb3c7;
   cursor: pointer;
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1;
@@ -849,7 +897,7 @@ input {
 
 .scale-reading {
   font-family: var(--mono);
-  font-size: 38px;
+  font-size:calc(38px * var(--font-scale));
   font-weight: 700;
   color: #b6e09a;
   letter-spacing: 2px;
@@ -865,7 +913,7 @@ input {
 
 .scale-lcd-unit {
   color: #5c7550;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   font-weight: 700;
 }
 
@@ -881,7 +929,7 @@ input {
   align-items: center;
   gap: 5px;
   color: #b9c2cb;
-  font-size: 9px;
+  font-size:calc(9px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.06em;
 }
@@ -910,7 +958,7 @@ input {
   display: flex;
   justify-content: space-between;
   color: #aeb8c1;
-  font-size: 8.5px;
+  font-size:calc(8.5px * var(--font-scale));
   letter-spacing: 0.12em;
   font-weight: 700;
 }
@@ -958,7 +1006,7 @@ input {
 }
 
 .scale-housing-label {
-  font-size: 8.5px;
+  font-size:calc(8.5px * var(--font-scale));
   color: #7a838e;
   letter-spacing: 0.08em;
   font-weight: 700;
@@ -999,7 +1047,7 @@ input {
 }
 
 .metric-label {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
@@ -1011,7 +1059,7 @@ input {
 }
 
 .metric-hint {
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
   color: #8a93a0;
   margin-top: 4px;
 }
@@ -1019,7 +1067,7 @@ input {
 .metric-value {
   font-family: var(--mono);
   font-weight: 600;
-  font-size: 15px;
+  font-size:calc(15px * var(--font-scale));
 }
 
 .metric-value.diff-neg {
@@ -1050,14 +1098,14 @@ input {
 }
 
 .status-box .status-title {
-  font-size: 16px;
+  font-size:calc(16px * var(--font-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
 }
 
 .status-box .status-detail {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   margin-top: 3px;
   color: inherit;
   opacity: 0.8;
@@ -1104,14 +1152,14 @@ input {
 }
 
 .completion-title {
-  font-size: 20px;
+  font-size:calc(20px * var(--font-scale));
   font-weight: 800;
   color: #1c2b3d;
   letter-spacing: 0.04em;
 }
 
 .completion-sub {
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   color: var(--muted);
   margin-top: 3px;
   font-family: var(--mono);
@@ -1121,7 +1169,7 @@ input {
   display: flex;
   justify-content: space-between;
   padding: 10px 12px;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   color: #3d4651;
   background: #f4f5f7;
 }
@@ -1161,14 +1209,17 @@ input {
   .app-header {
     height: auto;
     min-height: 44px;
-    padding: 8px 12px;
+    /* This is the rule that actually applies on a phone. It must carry the
+       same status bar inset as the base rule above, or the farm name hides
+       behind the clock. */
+    padding: calc(10px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 12px 10px;
     flex-wrap: wrap;
     gap: 6px 10px;
   }
 
   .nav-tab {
     padding: 9px 12px;
-    font-size: 11.5px;
+    font-size:calc(11.5px * var(--font-scale));
   }
 
   .items-layout {
@@ -1196,11 +1247,18 @@ input {
   }
 
   .brand-name {
-    font-size: 13px;
+    /* The header controls now wrap onto their own row, so the brand is no
+       longer sharing width with them and no longer has to shrink. At 13px the
+       farm name was unreadable on a phone. */
+    font-size:calc(17px * var(--font-scale));
+  }
+
+  .brand-owner {
+    font-size:calc(12px * var(--font-scale));
   }
 
   .mode-badge {
-    font-size: 10px;
+    font-size:calc(10px * var(--font-scale));
   }
 
   .stage {
@@ -1219,26 +1277,26 @@ input {
   .btn-lg {
     min-height: 46px;
     padding: 12px 20px;
-    font-size: 15px;
+    font-size:calc(15px * var(--font-scale));
   }
 
   .item-row {
     padding: 11px 10px;
-    font-size: 14px;
+    font-size:calc(14px * var(--font-scale));
   }
 
   .weight-input {
     padding: 11px 9px;
-    font-size: 21px;
+    font-size:calc(21px * var(--font-scale));
   }
 
   .remove-btn {
-    font-size: 14px;
+    font-size:calc(14px * var(--font-scale));
     padding: 6px 9px;
   }
 
   .speaker-btn {
-    font-size: 15px;
+    font-size:calc(15px * var(--font-scale));
     padding: 6px 9px;
   }
 
@@ -1253,7 +1311,7 @@ input {
   }
 
   .current-item-name {
-    font-size: 36px;
+    font-size:calc(36px * var(--font-scale));
   }
 
   .scale {
@@ -1266,11 +1324,11 @@ input {
   }
 
   .scale-reading {
-    font-size: 34px;
+    font-size:calc(34px * var(--font-scale));
   }
 
   .metric-value {
-    font-size: 16px;
+    font-size:calc(16px * var(--font-scale));
   }
 
   .status-box {
@@ -1278,7 +1336,7 @@ input {
   }
 
   .status-box .status-title {
-    font-size: 15px;
+    font-size:calc(15px * var(--font-scale));
   }
 
   .completion-actions {
@@ -1323,14 +1381,14 @@ input {
     border: none;
     padding: 3px 0;
     text-align: left;
-    font-size: 13px;
+    font-size:calc(13px * var(--font-scale));
   }
 
   .items-list-panel .data-table td[data-label]::before {
     content: attr(data-label);
     display: inline-block;
     min-width: 74px;
-    font-size: 10px;
+    font-size:calc(10px * var(--font-scale));
     font-weight: 700;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -1340,7 +1398,7 @@ input {
 
   .items-list-panel .data-table td.item-name,
   .items-list-panel .data-table td:first-child {
-    font-size: 15px;
+    font-size:calc(15px * var(--font-scale));
     margin-bottom: 2px;
   }
 
@@ -1352,7 +1410,7 @@ input {
 
   .items-list-panel .data-table td.col-x .delete-btn {
     min-height: 38px;
-    font-size: 12px;
+    font-size:calc(12px * var(--font-scale));
   }
 
   .formula-lines {
@@ -1376,56 +1434,61 @@ input {
   }
 
   .field-label {
-    font-size: 11px;
+    font-size:calc(11px * var(--font-scale));
   }
 
   .items-form .text-input {
     padding: 11px 10px;
-    font-size: 15px;
+    font-size:calc(15px * var(--font-scale));
   }
 
   .formula-builder-row {
     padding: 10px 10px;
-    font-size: 13.5px;
+    font-size:calc(13.5px * var(--font-scale));
   }
 
   .formula-builder-total {
-    font-size: 13px;
+    font-size:calc(13px * var(--font-scale));
     padding: 9px 10px;
   }
 
   .formula-name-chip,
   .formula-line-chip {
-    font-size: 11.5px;
+    font-size:calc(11.5px * var(--font-scale));
     padding: 3px 8px;
     margin: 2px 3px 2px 0;
   }
 
   .formula-summary-name {
-    font-size: 24px;
+    font-size:calc(24px * var(--font-scale));
   }
 
   .screen-sub {
-    font-size: 12px;
+    font-size:calc(12px * var(--font-scale));
   }
 }
 
 @media (max-width: 400px) {
   .brand-name {
-    font-size: 12px;
+    /* See the 560px note above. 12px was too small to read on the device. */
+    font-size:calc(16px * var(--font-scale));
+  }
+
+  .brand-owner {
+    font-size:calc(12px * var(--font-scale));
   }
 
   .current-item-name {
-    font-size: 30px;
+    font-size:calc(30px * var(--font-scale));
   }
 
   .scale-reading {
-    font-size: 30px;
+    font-size:calc(30px * var(--font-scale));
     letter-spacing: 1px;
   }
 
   .queue {
-    font-size: 11.5px;
+    font-size:calc(11.5px * var(--font-scale));
   }
 
   .form-grid {
@@ -1433,7 +1496,7 @@ input {
   }
 
   .data-table {
-    font-size: 12px;
+    font-size:calc(12px * var(--font-scale));
   }
 
   .data-table th,
@@ -1489,7 +1552,7 @@ input {
   border: 1px solid var(--border-strong);
   border-radius: 3px;
   padding: 7px 9px;
-  font-size: 13.5px;
+  font-size:calc(13.5px * var(--font-scale));
   width: 100%;
   color: #22272e;
   background: #ffffff;
@@ -1511,7 +1574,7 @@ input {
   border: 1px solid var(--border-strong);
   color: #8b94a0;
   border-radius: 3px;
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.05em;
   padding: 4px 8px;
@@ -1555,7 +1618,7 @@ input {
   background: transparent;
   border: none;
   cursor: pointer;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   color: var(--text);
   text-align: left;
 }
@@ -1608,7 +1671,7 @@ input {
   border: none;
   border-bottom: 2px solid transparent;
   padding: 8px 14px;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.05em;
   color: #55606e;
@@ -1645,7 +1708,7 @@ input {
 }
 
 .stat-label {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
@@ -1654,14 +1717,14 @@ input {
 
 .stat-value {
   font-family: var(--mono);
-  font-size: 26px;
+  font-size:calc(26px * var(--font-scale));
   font-weight: 700;
   color: #1c2b3d;
   margin-top: 3px;
 }
 
 .stat-unit {
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   font-weight: 600;
   color: var(--muted);
   margin-left: 4px;
@@ -1680,7 +1743,7 @@ input {
 }
 
 .filter-label {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
@@ -1722,7 +1785,7 @@ input {
 }
 
 .ing-weight {
-  font-size: 16px;
+  font-size:calc(16px * var(--font-scale));
   padding: 6px 9px;
   width: 100%;
 }
@@ -1740,7 +1803,7 @@ input {
   gap: 8px;
   padding: 6px 8px;
   border-bottom: 1px solid #e6e9ed;
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--font-scale));
 }
 
 .formula-builder-row:last-child {
@@ -1763,7 +1826,7 @@ input {
   justify-content: space-between;
   padding: 7px 8px;
   background: #eef0f3;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   font-weight: 700;
   border-top: 1px solid var(--border);
 }
@@ -1775,7 +1838,7 @@ input {
   border: 1px solid #c9d6e6;
   color: #2f5ea3;
   border-radius: 3px;
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--font-scale));
   font-weight: 600;
   padding: 3px 8px;
   margin: 2px 4px 2px 0;
@@ -1783,7 +1846,7 @@ input {
 
 .formula-name {
   font-weight: 700;
-  font-size: 15px;
+  font-size:calc(15px * var(--font-scale));
 }
 
 .formula-lines {
@@ -1798,25 +1861,25 @@ input {
 }
 
 .formula-summary-name {
-  font-size: 22px;
+  font-size:calc(22px * var(--font-scale));
   font-weight: 800;
   color: #1c2b3d;
 }
 
 .formula-summary-meta {
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--font-scale));
   color: var(--muted);
   font-family: var(--mono);
   margin-top: 2px;
 }
 
 .formula-master-note {
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--font-scale));
   color: var(--muted);
 }
 
 .cart-formula-tag {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   color: var(--blue);
   font-weight: 600;
 }
@@ -1828,7 +1891,7 @@ input {
   border: 1px solid #c9d6e6;
   color: #2f5ea3;
   border-radius: 3px;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   font-weight: 700;
   padding: 3px 8px;
 }
@@ -1839,7 +1902,7 @@ input {
 }
 
 .history-detail-formula {
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--font-scale));
   color: var(--text);
   margin-bottom: 8px;
 }
@@ -1848,7 +1911,7 @@ input {
 
 .save-state {
   margin-top: 6px;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   font-weight: 600;
 }
 
@@ -1863,6 +1926,13 @@ input {
 /* ---------- Print ---------- */
 
 @media print {
+  /* Printed bills and reports always come out at the normal size, whatever the
+     operator has chosen for the screen. Specificity matches the step rules
+     above so source order decides, and this block comes later. */
+  :root[data-font-scale] {
+    --font-scale: 1;
+  }
+
   body {
     background: #ffffff;
   }
@@ -1896,7 +1966,7 @@ input {
 }
 
 .report-actions .btn {
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   padding: 6px 12px;
 }
 
@@ -1933,14 +2003,14 @@ input {
 .print-toolbar-title {
   color: #ffffff;
   font-weight: 700;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .print-toolbar-sub {
   color: #b9c6d6;
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--font-scale));
 }
 
 .print-toolbar-actions {
@@ -1988,26 +2058,26 @@ input {
   background: #24384f;
   color: #ffffff;
   font-weight: 800;
-  font-size: 17px;
+  font-size:calc(17px * var(--font-scale));
   letter-spacing: 0.03em;
 }
 
 .print-company-name {
-  font-size: 19px;
+  font-size:calc(19px * var(--font-scale));
   font-weight: 800;
   letter-spacing: 0.06em;
   color: #c62828;
 }
 
 .print-company-sub {
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
   color: #5b6a7c;
   letter-spacing: 0.02em;
 }
 
 .print-docno {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size:calc(10.5px * var(--font-scale));
   color: #5b6a7c;
   border: 1px solid var(--border);
   padding: 3px 7px;
@@ -2024,7 +2094,7 @@ input {
 
 .print-report-title {
   margin: 0;
-  font-size: 22px;
+  font-size:calc(22px * var(--font-scale));
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -2033,12 +2103,12 @@ input {
 
 .print-report-sub {
   margin-top: 3px;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   color: #43515f;
 }
 
 .print-generated {
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--font-scale));
   color: #5b6a7c;
   text-align: right;
   line-height: 1.6;
@@ -2058,7 +2128,7 @@ input {
 }
 
 .print-summary-label {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #5b6a7c;
@@ -2068,7 +2138,7 @@ input {
   margin-top: 3px;
   font-family: var(--mono);
   font-weight: 800;
-  font-size: 17px;
+  font-size:calc(17px * var(--font-scale));
 }
 
 .print-section {
@@ -2076,7 +2146,7 @@ input {
 }
 
 .print-section-title {
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--font-scale));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -2087,7 +2157,7 @@ input {
 }
 
 .print-section-note {
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--font-scale));
   color: #7c8794;
   font-style: italic;
   padding: 6px 2px;
@@ -2096,13 +2166,13 @@ input {
 .print-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--font-scale));
 }
 
 .print-table th {
   background: #eef0f3;
   color: #3d4a58;
-  font-size: 10.5px;
+  font-size:calc(10.5px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 7px 9px;
@@ -2151,7 +2221,7 @@ input {
   flex: 1;
   text-align: center;
   color: #5b6a7c;
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
 }
 
 .print-signature-line {
@@ -2161,7 +2231,7 @@ input {
 
 .print-footer-note {
   text-align: center;
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
   color: #7c8794;
   border-top: 1px solid #eceff2;
   padding-top: 10px;
@@ -2221,7 +2291,7 @@ input {
   .ing-row .select-input {
     grid-column: 1 / -1;
     padding: 11px 10px;
-    font-size: 15px;
+    font-size:calc(15px * var(--font-scale));
   }
 
   .ing-row .input-row {
@@ -2263,7 +2333,7 @@ input {
   border: 0;
   background: transparent;
   color: #9fb3c7;
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.08em;
   padding: 6px 10px;
@@ -2312,7 +2382,7 @@ input {
   background: #ffffff;
   border: 1px solid var(--border-strong);
   border-radius: 3px;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   padding: 5px 6px;
   color: var(--text);
   max-width: 260px;
@@ -2326,7 +2396,7 @@ input {
 }
 
 .scale-conn-status {
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
   color: #9fb3c7;
   font-family: var(--mono);
   max-width: 320px;
@@ -2366,7 +2436,7 @@ input {
 }
 
 .live-reading-value {
-  font-size: 30px;
+  font-size:calc(30px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.02em;
   color: #12324f;
@@ -2381,7 +2451,7 @@ input {
   align-self: center;
   margin-left: 4px;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.08em;
   color: #1d6b2d;
@@ -2393,7 +2463,7 @@ input {
 
 .device-error {
   margin-top: 8px;
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
   line-height: 1.45;
   color: #8a1f24;
   background: #fbebeb;
@@ -2514,7 +2584,7 @@ input {
 }
 
 .crash-title {
-  font-size: 1.25rem;
+  font-size:calc(1.25rem * var(--font-scale));
   font-weight: 700;
   color: #ff8f8f;
 }
@@ -2531,7 +2601,7 @@ input {
   background: #22161a;
   color: #ffd7d7;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.85rem;
+  font-size:calc(0.85rem * var(--font-scale));
   overflow-wrap: anywhere;
 }
 
@@ -2542,7 +2612,7 @@ input {
   border-radius: 8px;
   background: #0d1117;
   color: #8fa0b3;
-  font-size: 0.72rem;
+  font-size:calc(0.72rem * var(--font-scale));
   line-height: 1.4;
   overflow: auto;
   white-space: pre-wrap;
@@ -2561,7 +2631,7 @@ input {
 .crash-hint {
   margin: 16px 0 0;
   color: #8fa0b3;
-  font-size: 0.8rem;
+  font-size:calc(0.8rem * var(--font-scale));
 }
 
 @media (max-width: 480px) {
@@ -2576,7 +2646,7 @@ input {
   margin-left: 6px;
   padding: 1px 5px;
   border-radius: 4px;
-  font-size: 0.72rem;
+  font-size:calc(0.72rem * var(--font-scale));
   font-weight: 700;
 }
 
@@ -2615,7 +2685,9 @@ input {
 
 .server-fields {
   display: grid;
-  grid-template-columns: 1fr 140px;
+  /* One column: the address field takes the full width because it may hold a
+     whole hosted URL, scheme and base path included, not just an IP. */
+  grid-template-columns: 1fr;
   gap: 16px;
   margin: 20px 0 4px;
 }
@@ -2627,7 +2699,7 @@ input {
 }
 
 .server-fields .form-label {
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2635,14 +2707,14 @@ input {
 }
 
 .server-fields .text-input {
-  font-size: 18px;
+  font-size:calc(18px * var(--font-scale));
   padding: 14px 14px;
   min-height: 54px;
 }
 
 .server-preview {
   margin: 8px 0 0;
-  font-size: 14px;
+  font-size:calc(14px * var(--font-scale));
   color: var(--muted);
   word-break: break-all;
 }
@@ -2651,7 +2723,7 @@ input {
   margin-top: 16px;
   padding: 12px 14px;
   border-radius: 10px;
-  font-size: 15px;
+  font-size:calc(15px * var(--font-scale));
   border: 1px solid transparent;
 }
 
@@ -2683,7 +2755,7 @@ input {
   margin-top: 24px;
   padding-top: 18px;
   border-top: 1px solid var(--border);
-  font-size: 14px;
+  font-size:calc(14px * var(--font-scale));
   color: var(--muted);
   line-height: 1.5;
 }
@@ -2702,7 +2774,7 @@ input {
 
 .server-tab {
   margin-left: auto;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   letter-spacing: 0.06em;
   opacity: 0.8;
 }
@@ -2717,7 +2789,7 @@ input {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
 }
 
 @media (max-width: 560px) {
@@ -2732,4 +2804,112 @@ input {
   .server-tab {
     margin-left: 0;
   }
+}
+
+/* ---------- Auto-advance countdown ---------- */
+.status-auto-advance {
+  border-color: #2f5ea3;
+  background: #eaf1fa;
+  color: #1c3f70;
+  animation: auto-advance-pulse 1s ease-in-out infinite;
+}
+
+.status-auto-advance .status-title {
+  font-size:calc(19px * var(--font-scale));
+}
+
+@keyframes auto-advance-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.62;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-auto-advance {
+    animation: none;
+  }
+}
+
+/* ---------- Overview month shortcut ---------- */
+/* A month in the LAST 12 MONTHS table opens the monthly tab on that month, so
+   it reads as a link rather than as another cell of plain text. */
+.month-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: #1c5fa8;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.month-link:hover {
+  color: #123f74;
+}
+
+.month-link:focus-visible {
+  outline: 2px solid #1c5fa8;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ---------- Text size control ---------- */
+.font-size-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: #1c2d41;
+  border: 1px solid #3a5270;
+  border-radius: 3px;
+  padding: 2px;
+}
+
+.font-size-btn {
+  background: #24384f;
+  color: #e6edf4;
+  border: 1px solid #3a5270;
+  border-radius: 2px;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 700;
+  line-height: 1;
+  /* A generous target: this is pressed with a thumb, often a gloved one. */
+  min-width: 32px;
+  min-height: 28px;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.font-size-btn:hover:not(:disabled) {
+  background: #2f5ea3;
+  border-color: #6c93bd;
+}
+
+.font-size-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.font-size-btn:focus-visible {
+  outline: 2px solid #6c93bd;
+  outline-offset: 1px;
+}
+
+.font-size-value {
+  min-width: 78px;
+  padding: 0 4px;
+  color: #9fb3c7;
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
 }

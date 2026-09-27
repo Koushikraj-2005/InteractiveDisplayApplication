@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { ScaleReading } from '../../../shared/scale.ts';
 import { alertsEnabled, primeAlertAudio, toggleAlertsEnabled } from '../../../shared/alerts.ts';
+import { secondsLeft } from '../../../shared/useAutoAdvance.ts';
 import { useVerdictAlert } from '../../../shared/useVerdictAlert.ts';
 import { stopNameLoop as stopUnderweightName } from '../../../shared/multilingualName.ts';
 import { useUnderweightName } from '../../../shared/useUnderweightName.ts';
@@ -38,8 +39,13 @@ export interface WeighingTerminalProps {
   /** Raw text from the keypad; null/'' in live mode. */
   reading: string | number | null;
   nextEnabled: boolean;
-  /** Why NEXT is blocked, e.g. the previous item is still on the scale. */
+  /** Why the line is not advancing yet, e.g. the scale is not settled. */
   nextBlockedReason?: string | null;
+  /**
+   * Milliseconds until the line advances by itself, 0 when not counting. There
+   * is no button: reaching the target is the only thing that moves a line on.
+   */
+  autoAdvanceMs?: number;
   voiceLang: LangCode;
   mode?: WeightMode;
   device?: DeviceState | null;
@@ -57,6 +63,7 @@ export function WeighingTerminal({
   reading,
   nextEnabled,
   nextBlockedReason = null,
+  autoAdvanceMs = 0,
   voiceLang,
   mode = 'simulation',
   device = null,
@@ -109,6 +116,7 @@ export function WeighingTerminal({
   // These are optional so the terminal can be used read-only; guard at the
   // call sites that render the interactive controls.
   const handleReading = onReading ?? (() => {});
+  const countingDown = autoAdvanceMs > 0;
   const handleNext = onNext ?? (() => {});
 
   if (!activeItem) return null;
@@ -326,14 +334,23 @@ export function WeighingTerminal({
             </div>
           )}
 
-          <button
-            type="button"
-            className="btn btn-primary btn-lg btn-block"
-            disabled={!nextEnabled || offline}
-            onClick={handleNext}
-          >
-            NEXT ITEM
-          </button>
+          {status.correct && !offline && (
+            <div className="status-box status-auto-advance" role="status" aria-live="polite">
+              <div className="status-title">
+                {countingDown ? `TARGET REACHED — NEXT IN ${secondsLeft(autoAdvanceMs)}` : 'TARGET REACHED'}
+              </div>
+              <div className="status-detail">
+                {countingDown
+                  ? 'Moving on by itself. Take the item off now.'
+                  : 'Wait for the scale to settle.'}
+              </div>
+            </div>
+          )}
+
+          {/* No NEXT button: a line moves on by itself once the target weight
+              lands, so there is nothing to press and nothing to press it with.
+              The hint below is the only thing explaining a line that has not
+              moved, so it matters more now than it did. */}
           {!nextEnabled && nextBlockedReason && !offline && (
             <div className="metric-hint next-blocked">{nextBlockedReason}</div>
           )}

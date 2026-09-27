@@ -1,3 +1,5 @@
+import { roundOffWeight } from '../../../shared/targetWeight';
+
 /** How a live/placed weight compares to the weight the recipe requires. */
 export type ReadingVerdictType =
   | 'neutral'
@@ -56,6 +58,11 @@ export function parseWeight(raw: unknown): number | null {
 /**
  * Compares the current weight against the required weight and describes the
  * gap. `current === null` means nothing has been weighed yet.
+ *
+ * The reading is rounded down to whole kilograms the same way the target is, so
+ * 51.2 kg on the scale matches a 51 kg target rather than sitting 0.2 kg short
+ * of it forever — which, with the NEXT button gone, would never move on. A 51 kg
+ * target is therefore met by any reading from 51.000 up to 51.999.
  */
 export function evaluateReading(
   required: number,
@@ -70,7 +77,7 @@ export function evaluateReading(
       correct: false,
     };
   }
-  const difference = round3(current - required);
+  const difference = round3(roundOffWeight(current) - required);
   if (difference === 0) {
     return {
       type: 'accepted',

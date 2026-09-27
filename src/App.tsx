@@ -8,6 +8,7 @@ import {
   type ReadingVerdict,
 } from './lib/weights.ts';
 import { ReZeroLatch } from '../shared/reZeroLatch.ts';
+import { useAutoAdvance } from '../shared/useAutoAdvance.ts';
 import { useWeightSource } from './lib/weightSource.ts';
 import { preloadAll, stopSpeaking } from './lib/tts.ts';
 import { api, type WeighingPayload } from './api.ts';
@@ -27,6 +28,8 @@ import {
   subscribeToServerAddress,
 } from './lib/serverAddress.ts';
 import type { Bill, CartItem, Formula, Item, LangCode } from './lib/types.ts';
+import { FontSizeControl } from '../shared/FontSizeControl.tsx';
+import { roundOffWeight, roundTargetWeight, targetRoundingNote } from '../shared/targetWeight.ts';
 
 type ScreenKey = 'weighing' | 'formulas' | 'history' | 'reports' | 'items';
 type Stage = 'select' | 'weighing' | 'complete';
@@ -65,7 +68,9 @@ export default function App() {
   const [selectedFormulaId, setSelectedFormulaId] = useState<number | null>(null);
   const [reqInput, setReqInput] = useState('');
   const [reqError, setReqError] = useState('');
-  const [voiceLang, setVoiceLang] = useState<LangCode>('en');
+  // No language picker any more: every announcement leads in English and the
+  // underweight repeat walks the remaining languages on its own.
+  const voiceLang: LangCode = 'en';
   const [savedBill, setSavedBill] = useState<Bill | null>(null);
   const [billSaving, setBillSaving] = useState(false);
   const [billError, setBillError] = useState('');
@@ -81,6 +86,7 @@ export default function App() {
     useWeightSource();
   const latch = useMemo(() => new ReZeroLatch(), []);
   const lastReadingRef = useRef<number | null>(null);
+  const advancedUidRef = useRef<string | null>(null);
 
   async function loadItems(silent = false) {
     if (!silent) setItemsLoading(true);
@@ -132,6 +138,17 @@ export default function App() {
   const liveSettled = mode !== 'weighing' || (Boolean(device.connected) && live?.stable === true);
   const readingStale = latch.isStale(getReading());
   const nextEnabled = status.correct && liveSettled && !readingStale;
+  // A correct weight advances on its own, so the operator never has to reach
+  // for the button mid-pour.
+  // Tell the operator the moment a typed target will be snapped, rather than
+  // letting the rounded figure appear only on the bill.
+  const reqRoundingNote = targetRoundingNote(parseWeight(reqInput) ?? NaN);
+
+  const autoAdvanceMs = useAutoAdvance({
+    ready: nextEnabled,
+    token: activeItem ? `${activeIndex}:${activeItem.uid}:${activeItem.required}` : null,
+    onAdvance: handleNext,
+  });
 
   // Remember the last seen reading so a weighing session can be resumed or
   // audited from the live value after re-renders.
@@ -163,7 +180,7 @@ export default function App() {
           slug: item ? item.slug : '',
           name: item ? item.name : line.itemName,
           names: item ? item.names : { en: line.itemName, hi: '', bn: '', ta: '' },
-          required: round3(line.requiredWeight),
+          required: roundTargetWeight(line.requiredWeight),
           status: 'pending',
           formulaId: formula.id,
           formulaName: formula.name,
@@ -187,6 +204,9 @@ export default function App() {
       setReqError('That weight rounds to zero at 0.001 kg precision. Enter 0.001 or more.');
       return;
     }
+    // Snapped to a weight the scale can actually show, so the line is
+    // reachable and still moves on by itself when the target lands.
+    const target = roundTargetWeight(required);
     if (!selectedItem) return;
     setCart((prev) => [
       ...prev,
@@ -196,7 +216,7 @@ export default function App() {
         slug: selectedItem.slug,
         name: selectedItem.name,
         names: selectedItem.names,
-        required: round3(required),
+        required: target,
         status: 'pending',
       },
     ]);
@@ -219,6 +239,10 @@ export default function App() {
 
   function handleNext() {
     if (!activeItem) return;
+    // A tap on NEXT can land in the same moment the auto-advance timer fires.
+    // Both would advance the same line, so the second one is dropped.
+    if (advancedUidRef.current === activeItem.uid) return;
+    advancedUidRef.current = activeItem.uid;
     const current = getReading();
     if (current == null || round3(current - activeItem.required) !== 0) return;
     // Re-check the latch here as well as in the button, so a stale reading
@@ -249,7 +273,9 @@ export default function App() {
       itemId: item.id,
       itemName: item.name,
       requiredWeight: item.required,
-      actualWeight: item.actual ?? null,
+      // Recorded rounded to whole kilograms, the same figure the operator was
+      // shown and the verdict accepted, so the bill agrees with the screen.
+      actualWeight: item.actual == null ? null : roundOffWeight(item.actual),
     }));
     const formulaNames = new Set(
       completed
@@ -324,19 +350,30 @@ export default function App() {
     window.print();
   }
 
-  // In the Android build there is no address yet, so the app is useless until
-  // one is entered: show the setup screen instead of the whole terminal.
+  // No address yet means the Android app is useless, so setup replaces the
+  // whole terminal. Once one is stored this is only ever reached to change it,
+  // and then it must offer a way back out — the SERVER tab is how the address
+  // gets edited, so it opens the edit screen with a CANCEL, not the hard
+  // first-run screen.
   if (showServer) {
+    const editing = !needsServerAddress();
     return (
       <div className="app">
         <header className="app-header">
           <div className="brand">
             <span className="brand-glyph">⚖</span>
-            <span className="brand-name">NAVEEN POULTRY FARMS</span>
+            <span className="brand-text">
+              <span className="brand-owner">REMAN INFRASTRUCTURE (P) LIMITED</span>
+              <span className="brand-name">NAVEEN POULTRY FARMS</span>
+            </span>
           </div>
         </header>
         <main>
-          <ServerScreen firstRun onDone={() => setShowServer(false)} />
+          <ServerScreen
+            firstRun={!editing}
+            onDone={() => setShowServer(false)}
+            onCancel={editing ? () => setShowServer(false) : undefined}
+          />
         </main>
       </div>
     );
@@ -347,9 +384,13 @@ export default function App() {
       <header className="app-header">
         <div className="brand">
           <span className="brand-glyph">⚖</span>
-          <span className="brand-name">NAVEEN POULTRY FARMS</span>
+          <span className="brand-text">
+            <span className="brand-owner">REMAN INFRASTRUCTURE (P) LIMITED</span>
+            <span className="brand-name">NAVEEN POULTRY FARMS</span>
+          </span>
         </div>
         <div className="header-controls">
+          <FontSizeControl />
           {isNativeApp() && serverOrigin && (
             <button
               type="button"
@@ -360,21 +401,6 @@ export default function App() {
               {serverOrigin.replace(/^https?:\/\//, '')}
             </button>
           )}
-          <label className="voice-label" htmlFor="voice-lang">
-            Speak
-          </label>
-          <select
-            id="voice-lang"
-            className="lang-select"
-            value={voiceLang}
-            onChange={(event) => setVoiceLang(event.target.value as LangCode)}
-          >
-            {VOICE_LANGS.map((lang: { code: LangCode; label: string }) => (
-              <option key={lang.code} value={lang.code}>
-                {lang.label}
-              </option>
-            ))}
-          </select>
           <ScaleConnection
             mode={mode}
             setMode={setMode}
@@ -453,6 +479,7 @@ export default function App() {
                 selectedItemId={selectedItemId}
                 selectedFormulaId={selectedFormulaId}
                 reqInput={reqInput}
+                roundingNote={reqRoundingNote}
                 reqError={reqError}
                 onSelectItem={selectItem}
                 onSelectFormula={selectFormula}
@@ -470,6 +497,7 @@ export default function App() {
                 activeIndex={activeIndex}
                 activeItem={activeItem}
                 status={status}
+                autoAdvanceMs={autoAdvanceMs}
                 reading={mode === 'weighing' ? (live?.weight != null ? String(live.weight) : '') : raw}
                 nextEnabled={nextEnabled}
                 nextBlockedReason={
@@ -529,6 +557,8 @@ export default function App() {
 
         {screen === 'reports' && <ReportsScreen />}
       </main>
+
+      <footer className="app-footer no-print">© Copyright Reem Engineering Enterprises</footer>
     </div>
   );
 }

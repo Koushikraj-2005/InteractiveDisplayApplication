@@ -9,6 +9,8 @@ export interface ItemSelectionProps {
   selectedItemId: number | null;
   selectedFormulaId: number | null;
   reqInput: string;
+  /** What the typed target will be snapped to, when it differs. */
+  roundingNote?: string | null;
   reqError: string;
   onSelectItem: (id: number) => void;
   onSelectFormula: (id: number) => void;
@@ -27,6 +29,7 @@ export function ItemSelection({
   selectedItemId,
   selectedFormulaId,
   reqInput,
+  roundingNote,
   reqError,
   onSelectItem,
   onSelectFormula,
@@ -53,7 +56,7 @@ export function ItemSelection({
       <div className="formula-summary">
         <div className="formula-summary-name">{selectedFormula.name}</div>
         <div className="formula-summary-meta">
-          {selectedFormula.lines.length} ingredients · {fmtWeight(selectedFormula.totalWeight)}
+          {selectedFormula.lines.length} items · {fmtWeight(selectedFormula.totalWeight)}
         </div>
       </div>
       <div className="formula-builder-list">
@@ -65,7 +68,7 @@ export function ItemSelection({
         ))}
       </div>
       <div className="formula-master-note">
-        Using this formula replaces the current weighing list with its ingredients.
+        Using this formula replaces the current weighing list with its items.
       </div>
       <button
         type="button"
@@ -103,6 +106,9 @@ export function ItemSelection({
           <span className="unit">kg</span>
         </div>
         {reqError && <div className="error-text">{reqError}</div>}
+        {/* Shown while typing, so the snapped target is never a surprise on
+            the bill. */}
+        {!reqError && roundingNote && <div className="metric-hint">{roundingNote}</div>}
       </div>
       <button type="button" className="btn btn-primary btn-block" onClick={onAddToCart}>
         ADD TO WEIGHING LIST

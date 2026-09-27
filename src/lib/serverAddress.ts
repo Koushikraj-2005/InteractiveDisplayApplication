@@ -7,52 +7,98 @@ import { Capacitor } from '@capacitor/core';
  * same-origin relative URL ('/api') is correct and needs no configuration.
  *
  * Inside the Android build the page is served by the WebView from
- * https://localhost, so 'localhost' would mean the phone itself. There the
+ * http://localhost, so 'localhost' would mean the phone itself. There the
  * address of the machine holding the scale has to be entered once and kept in
  * localStorage, because the LAN address a router hands out will change sooner
  * or later and a baked-in URL would leave the app dead until it is rebuilt.
+ *
+ * Both schemes are accepted, so the same build works against the PC on the
+ * shop LAN over http and against a hosted https link. The page is served over
+ * http precisely so that neither case is a mixed-content block: an insecure page
+ * may still call an https API, but not the other way round.
  */
 
 const STORAGE_KEY = 'koushi.serverUrl';
 export const DEFAULT_PORT = 3001;
 
+export type AddressScheme = 'http' | 'https';
+
 export interface ParsedAddress {
+  scheme: AddressScheme;
   host: string;
-  port: number;
+  /** null when the address did not name one; the scheme's own default then applies. */
+  port: number | null;
+  /** Base path with no trailing slash, e.g. '/weighing'. Empty when absent. */
+  path: string;
 }
 
 /** True when running inside the Android/iOS shell rather than a browser tab. */
 export const isNativeApp = (): boolean => Capacitor.isNativePlatform();
 
-const normalizeHost = (raw: string): string =>
-  (typeof raw === 'string' ? raw : '')
-    .trim()
-    .replace(/^[a-z]+:\/\//i, '')
-    .replace(/\/.*$/, '')
-    .trim();
-
 /**
- * Accepts what an operator would actually type — '192.168.1.23',
- * '192.168.1.23:3001', 'http://192.168.1.23:3001' — and returns a canonical
- * http origin, or null when the input cannot be used.
+ * Accepts what an operator or a deployment would actually type:
+ * '192.168.1.23', '192.168.1.23:3001', 'http://192.168.1.23:3001',
+ * 'https://weigh.example.com', 'https://example.com/weighing'.
+ *
+ * A bare host is assumed to be the LAN case — http on the default port. An
+ * explicit http:// or https:// is honoured exactly as written, including a
+ * hosted base path, so an https link is never silently downgraded.
  */
 export function parseAddress(input: string): ParsedAddress | null {
-  const host = normalizeHost(input);
-  if (!host) return null;
+  const raw = (typeof input === 'string' ? input : '').trim();
+  if (!raw) return null;
+
+  const schemeMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(raw);
+  let scheme: AddressScheme | null = null;
+  let rest = raw;
+  if (schemeMatch) {
+    const found = schemeMatch[1].toLowerCase();
+    if (found !== 'http' && found !== 'https') return null;
+    scheme = found;
+    rest = raw.slice(schemeMatch[0].length);
+  }
+
+  // Credentials, query strings and fragments are not part of a server address.
+  if (/[@?#]/.test(rest)) return null;
+
+  const slash = rest.indexOf('/');
+  const authority = slash === -1 ? rest : rest.slice(0, slash);
+  const path = slash === -1 ? '' : rest.slice(slash).replace(/\/+$/, '');
+  if (!authority) return null;
+
   // A bracketed IPv6 literal, or a bare one, may carry a port after a colon.
-  const match = /^(.*?)(?::(\d{1,5}))?$/.exec(host);
+  const match = /^(.*?)(?::(\d{1,5}))?$/.exec(authority);
   if (!match) return null;
-  const parsedHost = match[1];
-  if (!parsedHost) return null;
-  const port = match[2] ? Number(match[2]) : DEFAULT_PORT;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
-  if (/\s/.test(parsedHost)) return null;
-  return { host: parsedHost, port };
+  const host = match[1];
+  if (!host) return null;
+  if (/\s/.test(host)) return null;
+  if (host.includes(':') && !host.startsWith('[')) {
+    // A bare IPv6 literal has several colons, so it cannot also carry a port.
+    return null;
+  }
+  const bareHost = host.replace(/^\[|\]$/g, '');
+
+  let port: number | null;
+  if (match[2] != null) {
+    port = Number(match[2]);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  } else if (scheme) {
+    // An explicit URL with no port means the scheme's own default.
+    port = null;
+  } else {
+    port = DEFAULT_PORT;
+  }
+
+  return { scheme: scheme ?? 'http', host: bareHost, port, path };
 }
 
-/** Canonical origin for an address, e.g. 'http://192.168.1.23:3001'. */
-export const addressOrigin = ({ host, port }: ParsedAddress): string =>
-  `http://${host.includes(':') ? `[${host}]` : host}:${port}`;
+/**
+ * Canonical origin for an address, e.g. 'http://192.168.1.23:3001' or
+ * 'https://weigh.example.com'. A port is omitted when the address did not name
+ * one, so a hosted link keeps its real shape instead of picking up :3001.
+ */
+export const addressOrigin = ({ scheme, host, port, path }: ParsedAddress): string =>
+  `${scheme}://${host.includes(':') ? `[${host}]` : host}${port == null ? '' : `:${port}`}${path}`;
 
 function readStored(): string | null {
   try {

@@ -290,7 +290,8 @@ function PrintReport({ doc, onClose }: PrintReportProps) {
               <span>Authorized by</span>
             </div>
           </div>
-          <div className="print-footer-note">Naveen Poultry Farms — Plant Weighbridge Records · All weights in kilograms, rounded to 3 decimals</div>
+          <div className="print-footer-note">Naveen Poultry Farms — Plant Weighbridge Records · All weights in kilograms, rounded down to whole kilograms</div>
+          <div className="print-footer-note">© Copyright Reem Engineering Enterprises</div>
         </footer>
       </div>
     </div>,
@@ -413,6 +414,17 @@ export function ReportsScreen() {
     }
   };
 
+  /**
+   * Opens the monthly tab already pointed at this month. React batches the
+   * three updates into one render, so the tab's effect loads the new year and
+   * month once instead of firing a request for the old selection first.
+   */
+  const openMonth = (year: number, month: number) => {
+    setSelYear(year);
+    setSelMonth(month);
+    setTab('monthly');
+  };
+
   useEffect(() => {
     if (tab === 'monthly') loadMonthly(selYear, selMonth);
   }, [tab, selYear, selMonth]);
@@ -511,8 +523,17 @@ export function ReportsScreen() {
                   {overview.series.map((entry) => (
                     <tr key={entry.month}>
                       <td>
-                        {MONTH_NAMES[Number(entry.month.slice(5, 7)) - 1]}{' '}
-                        {entry.month.slice(0, 4)}
+                        {/* Selecting a month here carries straight over to the
+                            monthly tab, so the operator never has to pick the
+                            same month twice. */}
+                        <button
+                          type="button"
+                          className="month-link"
+                          onClick={() => openMonth(Number(entry.month.slice(0, 4)), Number(entry.month.slice(5, 7)))}
+                        >
+                          {MONTH_NAMES[Number(entry.month.slice(5, 7)) - 1]}{' '}
+                          {entry.month.slice(0, 4)}
+                        </button>
                       </td>
                       <td className="num text-right">{entry.bills}</td>
                       <td className="num text-right">{entry.items}</td>

@@ -16,6 +16,7 @@ import {
   resolveNames,
   TTS_DIR,
 } from './tts.ts';
+import { roundOffWeight, roundTargetWeight } from '../shared/targetWeight.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -42,13 +43,13 @@ app.use((_req, res, next) => {
 // for the cases that genuinely cross origins, and accepts a single origin or a
 // comma separated allowlist (never '*'):
 //
-//  - https://localhost  the Capacitor Android WebView origin, needed for the app
-//  - capacitor://localhost, http://localhost  the iOS shell
+//  - http://localhost, https://localhost   the Capacitor shells
+//  - capacitor://localhost                  the iOS shell
 //  - http://192.168.x.x:5173 etc. a client served by a different dev machine
 //
 // This is a browser-side control only: it does not stop a device on the LAN from
 // calling the API directly, so it must not be mistaken for authentication.
-const CORS_ALWAYS_ALLOWED = ['https://localhost', 'capacitor://localhost'];
+const CORS_ALWAYS_ALLOWED = ['http://localhost', 'https://localhost', 'capacitor://localhost'];
 const corsOrigins = [
   ...CORS_ALWAYS_ALLOWED,
   ...(process.env.CORS_ORIGIN || '')
@@ -56,19 +57,24 @@ const corsOrigins = [
     .map((origin) => origin.trim())
     .filter(Boolean),
 ];
-// app.use('/api', (req, res, next) => {
-//   const origin = req.headers.origin;
-//   if (!origin) return next();
-//   if (!corsOrigins.includes(origin)) {
-//     return res.status(403).json({ error: 'Origin not allowed' });
-//   }
-//   res.setHeader('Access-Control-Allow-Origin', origin);
-//   res.setHeader('Vary', 'Origin');
-//   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-//   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-//   if (req.method === 'OPTIONS') return res.status(204).end();
-//   next();
-// });
+// This must stay enabled: the Android app is a genuinely cross-origin client.
+// Its WebView runs at http://localhost and calls the API at the LAN address
+// typed into ServerScreen, so without these headers the WebView blocks every
+// response and the app can never reach the server — while curl and the Vite dev
+// clients (proxied, therefore same-origin) work fine and hide the problem.
+app.use('/api', (req, res, next) => {
+  const origin = req.headers.origin;
+  if (!origin) return next();
+  if (!corsOrigins.includes(origin)) {
+    return res.status(403).json({ error: 'Origin not allowed' });
+  }
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+});
 
 app.use(express.json({ limit: '256kb' }));
 app.use('/tts', (req, res, next) => {
@@ -446,7 +452,7 @@ const parseFormulaBody = (body: Record<string, unknown>) => {
     lines.push({
       itemId,
       itemName: item.name,
-      requiredWeight: Math.round(requiredWeight * 1000) / 1000,
+      requiredWeight: roundTargetWeight(requiredWeight),
     });
   }
   if (lines.length === 0) {
@@ -613,8 +619,10 @@ app.post('/api/weighings', (req, res) => {
     lines.push({
       itemId,
       itemName: name.slice(0, MAX_NAME_LENGTH),
-      requiredWeight: Math.round(weight * 1000) / 1000,
-      actualWeight: actual != null && actual >= 0 ? Math.round(actual * 1000) / 1000 : null,
+      requiredWeight: roundTargetWeight(weight),
+      // Rounded like the target, so a bill shows the same whole kilograms the
+      // operator was shown when the line was accepted.
+      actualWeight: actual != null && actual >= 0 ? roundOffWeight(actual) : null,
     });
   }
   if (lines.length === 0) {

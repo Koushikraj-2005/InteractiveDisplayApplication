@@ -8,12 +8,15 @@ import {
   type ReadingVerdict,
 } from './lib/weights.ts';
 import { ReZeroLatch } from '../../shared/reZeroLatch.ts';
+import { useAutoAdvance } from '../../shared/useAutoAdvance.ts';
 import { useWeightSource } from './lib/weightSource.ts';
 import { preloadAll, stopSpeaking } from './lib/tts.ts';
 import { api, type WeighingPayload } from './api.ts';
 import { WeighingTerminal } from './stages/WeighingTerminal.tsx';
 import { ScaleConnection } from './components/ScaleConnection.tsx';
 import type { Bill, CartItem, Formula, Item, LangCode } from './lib/types.ts';
+import { FontSizeControl } from '../../shared/FontSizeControl.tsx';
+import { roundOffWeight, roundTargetWeight } from '../../shared/targetWeight.ts';
 
 type Stage = 'select' | 'weighing' | 'done';
 
@@ -64,7 +67,7 @@ function saveCart(cart: CartItem[], formulaId: number | null): void {
         id: line.id,
         slug: line.slug,
         name: line.name,
-        required: line.required,
+        required: roundTargetWeight(line.required),
         status: line.status,
         actual: line.actual ?? null,
         formulaName: line.formulaName ?? null,
@@ -215,7 +218,9 @@ export default function StaffApp() {
   const [itemsLoading, setItemsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
-  const [voiceLang, setVoiceLang] = useState<LangCode>('en');
+  // No language picker any more: every announcement leads in English and the
+  // underweight repeat walks the remaining languages on its own.
+  const voiceLang: LangCode = 'en';
 
   const [stage, setStage] = useState<Stage>('select');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -237,6 +242,7 @@ export default function StaffApp() {
   // while saving, but a fast double tap, an Enter keypress, or a retried click
   // can all fire before React re-renders, which previously created two bills.
   const savingRef = useRef(false);
+  const advancedUidRef = useRef<string | null>(null);
 
   async function loadData() {
     setItemsLoading(true);
@@ -285,7 +291,7 @@ export default function StaffApp() {
         slug: item ? item.slug : line.slug,
         name: item ? item.name : line.name,
         names: item ? item.names : { en: line.name, hi: '', bn: '', ta: '' },
-        required: line.required,
+        required: roundTargetWeight(line.required),
         status: 'pending',
         formulaName: line.formulaName ?? stored.formulaName,
         formulaId: line.formulaId ?? stored.formulaId,
@@ -308,6 +314,13 @@ export default function StaffApp() {
   const liveSettled = mode !== 'weighing' || (Boolean(device.connected) && live?.stable === true);
   const readingStale = latch.isStale(getReading());
   const nextEnabled = status.correct && liveSettled && !readingStale;
+  // A correct weight advances on its own, so the operator never has to reach
+  // for the button mid-pour.
+  const autoAdvanceMs = useAutoAdvance({
+    ready: nextEnabled,
+    token: activeItem ? `${activeIndex}:${activeItem.uid}:${activeItem.required}` : null,
+    onAdvance: handleNext,
+  });
 
   function startFormula(formula: Formula) {
     const lines: CartItem[] = formula.lines
@@ -319,7 +332,7 @@ export default function StaffApp() {
           slug: item ? item.slug : '',
           name: item ? item.name : line.itemName,
           names: item ? item.names : { en: line.itemName, hi: '', bn: '', ta: '' },
-          required: round3(line.requiredWeight),
+          required: roundTargetWeight(line.requiredWeight),
           status: 'pending',
           formulaId: formula.id,
           formulaName: formula.name,
@@ -384,6 +397,10 @@ export default function StaffApp() {
 
   function handleNext() {
     if (!activeItem) return;
+    // A tap on NEXT can land in the same moment the auto-advance timer fires.
+    // Both would advance the same line, so the second one is dropped.
+    if (advancedUidRef.current === activeItem.uid) return;
+    advancedUidRef.current = activeItem.uid;
     const current = getReading();
     if (current == null || round3(current - activeItem.required) !== 0) return;
     if (latch.isStale(current) || (mode === 'weighing' && live?.stable !== true)) return;
@@ -403,7 +420,7 @@ export default function StaffApp() {
       itemId: item.id,
       itemName: item.name,
       requiredWeight: item.required,
-      actualWeight: item.actual ?? null,
+      actualWeight: item.actual == null ? null : roundOffWeight(item.actual),
     }));
     const payload: WeighingPayload = {
       weighedAt: localIsoNow(),
@@ -433,10 +450,14 @@ export default function StaffApp() {
       <header className="app-header staff-header">
         <div className="brand">
           <span className="brand-glyph">⚖</span>
-          <span className="brand-name">NAVEEN POULTRY FARMS</span>
+          <span className="brand-text">
+            <span className="brand-owner">REMAN INFRASTRUCTURE (P) LIMITED</span>
+            <span className="brand-name">NAVEEN POULTRY FARMS</span>
+          </span>
           <span className="staff-header-tag">STAFF TERMINAL</span>
         </div>
         <div className="header-controls">
+          <FontSizeControl />
           <ScaleConnection
             mode={mode}
             setMode={setMode}
@@ -451,21 +472,6 @@ export default function StaffApp() {
             disconnect={disconnect}
             locked={stage === 'weighing'}
           />
-          <label className="voice-label" htmlFor="staff-voice-lang">
-            Speak
-          </label>
-          <select
-            id="staff-voice-lang"
-            className="lang-select"
-            value={voiceLang}
-            onChange={(event) => setVoiceLang(event.target.value as LangCode)}
-          >
-            {VOICE_LANGS.map((lang: { code: LangCode; label: string }) => (
-              <option key={lang.code} value={lang.code}>
-                {lang.label}
-              </option>
-            ))}
-          </select>
         </div>
       </header>
 
@@ -516,6 +522,7 @@ export default function StaffApp() {
             activeIndex={activeIndex}
             activeItem={activeItem}
             status={status}
+            autoAdvanceMs={autoAdvanceMs}
             reading={mode === 'weighing' ? (live?.weight != null ? String(live.weight) : '') : raw}
             nextEnabled={nextEnabled}
             nextBlockedReason={
@@ -545,6 +552,8 @@ export default function StaffApp() {
           />
         )}
       </main>
+
+      <footer className="app-footer no-print">© Copyright Reem Engineering Enterprises</footer>
     </div>
   );
 }

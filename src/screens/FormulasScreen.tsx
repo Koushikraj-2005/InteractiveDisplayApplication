@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../api.ts';
 import { fmtWeight } from '../lib/weights.ts';
 import type { Formula, Item, WeighingLine } from '../lib/types.ts';
+import { roundTargetWeight, targetRoundingNote } from '../../shared/targetWeight.ts';
 
 const MAX_NAME_LENGTH = 60;
 
@@ -61,7 +62,7 @@ export function FormulasScreen({
     const item = itemById(selItemId);
     const weight = Number(ingWeight);
     if (!item) {
-      setError('Select an ingredient from the list first');
+      setError('Select an item from the list first');
       return;
     }
     if (!Number.isFinite(weight) || weight <= 0) {
@@ -74,7 +75,8 @@ export function FormulasScreen({
     }
     setLines((prev) => [
       ...prev,
-      { itemId: item.id, itemName: item.name, requiredWeight: Math.round(weight * 1000) / 1000 },
+      // Snapped to a weight the scale can show, so the line is reachable.
+      { itemId: item.id, itemName: item.name, requiredWeight: roundTargetWeight(weight) },
     ]);
     setSelItemId('');
     setIngWeight('');
@@ -96,7 +98,7 @@ export function FormulasScreen({
       return;
     }
     if (lines.length === 0) {
-      setError('Add at least one ingredient to the formula');
+      setError('Add at least one item to the formula');
       return;
     }
     setSaving(true);
@@ -142,6 +144,7 @@ export function FormulasScreen({
   }
 
   const totalWeight = lines.reduce((sum, line) => sum + line.requiredWeight, 0);
+  const ingRoundingNote = targetRoundingNote(Number(ingWeight));
 
   return (
     <section className="stage">
@@ -149,7 +152,7 @@ export function FormulasScreen({
         {editingId != null ? `EDIT FORMULA` : 'FORMULAS'}
       </div>
       <div className="screen-sub">
-        A formula is a pre-set combination of ingredients with their exact weighing targets.
+        A formula is a pre-set combination of items with their exact weighing targets.
         Load a formula at the weighing terminal to start weighing it immediately.
       </div>
 
@@ -175,7 +178,7 @@ export function FormulasScreen({
                 <input
                   className="text-input"
                   type="text"
-                  placeholder="e.g. Tea"
+                  placeholder="e.g. Layer 1"
                   maxLength={MAX_NAME_LENGTH}
                   value={name}
                   onChange={(event) => setName(event.target.value)}
@@ -183,14 +186,14 @@ export function FormulasScreen({
               </div>
 
               <div className="form-field">
-                <div className="field-label">Add Ingredient</div>
+                <div className="field-label">Add Item</div>
                 <div className="ing-row">
                   <select
                     className="select-input"
                     value={selItemId}
                     onChange={(event) => setSelItemId(event.target.value)}
                   >
-                    <option value="">Select ingredient…</option>
+                    <option value="">Select item…</option>
                     {items.map((item: Item) => (
                       <option key={item.id} value={item.id}>
                         {item.code} — {item.name}
@@ -217,11 +220,14 @@ export function FormulasScreen({
                     ADD
                   </button>
                 </div>
+                {/* Shown while typing, so the snapped weight is never a
+                    surprise once the line is on the formula. */}
+                {ingRoundingNote && <div className="metric-hint">{ingRoundingNote}</div>}
               </div>
             </div>
 
             {lines.length === 0 ? (
-              <div className="panel-placeholder">No ingredients in this formula yet.</div>
+              <div className="panel-placeholder">No items in this formula yet.</div>
             ) : (
               <div className="formula-builder-list">
                 {lines.map((line: WeighingLine, index: number) => (
@@ -238,7 +244,7 @@ export function FormulasScreen({
                   </div>
                 ))}
                 <div className="formula-builder-total">
-                  <span>Ingredients: {lines.length}</span>
+                  <span>No. of Ingredients: {lines.length}</span>
                   <span className="num">Total: {fmtWeight(totalWeight)}</span>
                 </div>
               </div>
@@ -266,7 +272,7 @@ export function FormulasScreen({
           <div className="panel-title">FORMULA CATALOG ({formulas.length})</div>
           {formulas.length === 0 ? (
             <div className="panel-placeholder">
-              No formulas yet. Create one with the form — e.g. Tea with Milk, Sugar, Tea powder.
+              No formulas yet. Create one with the form — e.g. Layer 1 with Wheat Bran, Maize, Limestone.
             </div>
           ) : (
             <div className="table-scroll">
@@ -274,7 +280,7 @@ export function FormulasScreen({
                 <thead>
                   <tr>
                     <th>Formula</th>
-                    <th>Ingredients</th>
+                    <th>No. of Ingredients</th>
                     <th className="text-right">Total Weight</th>
                     <th className="col-x" />
                   </tr>
@@ -285,14 +291,16 @@ export function FormulasScreen({
                       <td>
                         <div className="formula-name">{formula.name}</div>
                         <div className="formula-lines">
-                          {formula.lines.map((line) => (
-                            <span key={line.id} className="formula-line-chip">
+                          {formula.lines.map((line, index: number) => (
+                            // Saved lines carry an id; a formula still being
+                            // built does not, so fall back to the position.
+                            <span key={line.id ?? `${line.itemId}-${index}`} className="formula-line-chip">
                               {line.itemName} {fmtWeight(line.requiredWeight)}
                             </span>
                           ))}
                         </div>
                       </td>
-                      <td data-label="Ingredients" className="num">{formula.itemCount}</td>
+                      <td data-label="No. of Ingredients" className="num">{formula.itemCount}</td>
                       <td data-label="Total Weight" className="num text-right">{fmtWeight(formula.totalWeight)}</td>
                       <td className="col-x">
                         <div className="formula-actions">

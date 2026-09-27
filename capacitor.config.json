@@ -7,6 +7,6 @@
     "backgroundColor": "#ffffff"
   },
   "server": {
-    "androidScheme": "https"
+    "androidScheme": "http"
   }
 }

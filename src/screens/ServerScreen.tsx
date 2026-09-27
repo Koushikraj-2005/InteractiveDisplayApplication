@@ -3,6 +3,7 @@ import { api } from '../api.ts';
 import {
   addressOrigin,
   DEFAULT_PORT,
+  getServerOrigin,
   isNativeApp,
   parseAddress,
   setServerOrigin,
@@ -27,14 +28,13 @@ const errText = (err: unknown): string => (err instanceof Error ? err.message : 
  * eventually change.
  */
 export function ServerScreen({ firstRun, onDone, onCancel }: ServerScreenProps) {
-  const [host, setHost] = useState('');
-  const [port, setPort] = useState(String(DEFAULT_PORT));
+  // Prefilled from the saved address so an existing setup opens ready to edit
+  // rather than blank. Empty on first run, which is the only time it is asked.
+  const [host, setHost] = useState(() => getServerOrigin() ?? '');
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  const candidate = parseAddress(
-    port.trim() && port.trim() !== String(DEFAULT_PORT) ? `${host}:${port.trim()}` : host,
-  );
+  const candidate = parseAddress(host);
 
   async function testConnection(): Promise<void> {
     if (!candidate) {
@@ -96,30 +96,16 @@ export function ServerScreen({ firstRun, onDone, onCancel }: ServerScreenProps) 
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
-              placeholder="192.168.1.23"
+              placeholder="192.168.1.23:3001 or https://weigh.example.com"
               value={host}
               onChange={(event) => setHost(event.target.value)}
             />
             <div className="field-hint">
-              The IP address of the computer the scale is plugged into.
+              The computer the scale is plugged into, on this network — or the
+              hosted address if the server is online. A plain IP defaults to
+              port {DEFAULT_PORT}; an address that starts with http:// or
+              https:// is used exactly as typed.
             </div>
-          </div>
-
-          <div className="form-field server-port">
-            <label className="form-label" htmlFor="server-port">
-              Port
-            </label>
-            <input
-              id="server-port"
-              className="text-input"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={65535}
-              value={port}
-              onChange={(event) => setPort(event.target.value)}
-            />
-            <div className="field-hint">Usually {DEFAULT_PORT}.</div>
           </div>
         </div>
 
