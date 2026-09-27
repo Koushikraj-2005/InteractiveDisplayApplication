@@ -2794,6 +2794,10 @@ input {
 .server-setup-panel {
   max-width: 620px;
   width: 100%;
+  /* .panel draws a border but carries no padding of its own, and this one holds
+     the address form directly, so the SERVER ADDRESS heading was sitting 1px
+     inside the border. */
+  padding: 18px 16px 20px;
 }
 
 .server-fields {
@@ -2821,8 +2825,10 @@ input {
 
 .server-fields .text-input {
   font-size:calc(18px * var(--font-scale));
-  padding: 14px 14px;
-  min-height: 54px;
+  /* Roomy padding: this box holds a long address and is tapped on a phone, so
+     14px left the text sitting close against the border. */
+  padding: 18px 18px;
+  min-height: 64px;
 }
 
 .server-preview {
