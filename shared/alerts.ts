@@ -31,6 +31,28 @@ export function alertsEnabled(): boolean {
   }
 }
 
+/** Volume: 0.0 (silent) to 1.0 (full). Persisted in localStorage. */
+const VOLUME_KEY = 'naveen.alertVolume';
+export function getAlertVolume(): number {
+  if (typeof window === 'undefined') return 1;
+  try {
+    const raw = window.localStorage.getItem(VOLUME_KEY);
+    const n = raw == null ? null : Number(raw);
+    if (n == null || !Number.isFinite(n)) return master ? master.gain.value : 1;
+    return Math.max(0, Math.min(1, n));
+  } catch {
+    return master ? master.gain.value : 1;
+  }
+}
+
+export function setAlertVolume(v: number): void {
+  const clamped = Math.max(0, Math.min(1, Number(v) || 0));
+  try {
+    window.localStorage.setItem(VOLUME_KEY, String(clamped));
+  } catch {}
+  if (master) master.gain.value = clamped;
+}
+
 export function setAlertsEnabled(on: boolean): boolean {
   // Unmuting must not stay silent: the loop was torn down when it was muted,
   // so re-arm it from whatever band is currently on screen.
@@ -67,8 +89,8 @@ const SOUNDS: Record<Exclude<AlertKind, 'neutral'>, Tone[]> = {
     { freq: 988, at: 0.12, duration: 0.14, peak: 0.2 },
   ],
   overweight: [
-    { freq: 392, at: 0, duration: 0.14, peak: 0.22 },
-    { freq: 294, at: 0.16, duration: 0.2, peak: 0.22 },
+    { freq: 220, at: 0, duration: 0.16, peak: 0.34 },
+    { freq: 176, at: 0.18, duration: 0.24, peak: 0.4 },
   ],
   accepted: [
     { freq: 659, at: 0, duration: 0.11, peak: 0.18 },
@@ -200,7 +222,7 @@ function ensureContext(): AudioContext | null {
   try {
     ctx = new Ctor();
     master = ctx.createGain();
-    master.gain.value = 0.6;
+    master.gain.value = 0.75;
     master.connect(ctx.destination);
   } catch {
     ctx = null;
@@ -233,11 +255,11 @@ export function primeAlertAudio(): void {
   }
 }
 
-function scheduleTone(context: AudioContext, out: GainNode, tone: Tone): void {
+function scheduleTone(kind: Exclude<AlertKind, 'neutral'>, context: AudioContext, out: GainNode, tone: Tone): void {
   const start = context.currentTime + tone.at;
   const osc = context.createOscillator();
   const gain = context.createGain();
-  osc.type = 'triangle';
+  osc.type = kind === 'overweight' ? 'square' : 'triangle';
   osc.frequency.setValueAtTime(tone.freq, start);
   // A short ramp in and an exponential ramp down; a hard stop would click.
   gain.gain.setValueAtTime(0.0001, start);
@@ -258,5 +280,5 @@ export function playAlert(kind: AlertKind): void {
     primeAlertAudio();
     return;
   }
-  for (const tone of SOUNDS[kind]) scheduleTone(context, master, tone);
+  for (const tone of SOUNDS[kind]) scheduleTone(kind, context, master, tone);
 }

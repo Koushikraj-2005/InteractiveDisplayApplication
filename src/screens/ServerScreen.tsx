@@ -43,9 +43,17 @@ export function ServerScreen({ firstRun, onDone, onCancel }: ServerScreenProps) 
     }
     setTesting(true);
     setResult(null);
+    // Read defensively: a WebView with storage disabled throws here, and doing
+    // it outside the try would reject the whole async function and leave the
+    // button stuck on "TESTING…" for good.
+    let previous: string | null = null;
+    try {
+      previous = isNativeApp() ? window.localStorage.getItem('koushi.serverUrl') : null;
+    } catch {
+      previous = null;
+    }
     // Applied before testing so the probe goes to the address being typed,
     // then rolled back if the operator cancels.
-    const previous = isNativeApp() ? window.localStorage.getItem('koushi.serverUrl') : null;
     setServerOrigin(addressOrigin(candidate));
     try {
       const health = await api.getItems();

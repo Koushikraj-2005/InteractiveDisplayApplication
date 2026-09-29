@@ -16,14 +16,34 @@ import {
   resolveNames,
   TTS_DIR,
 } from './tts.ts';
+import {
+  decodeImageDataUrl,
+  deleteItemImage,
+  ensureItemImagesDir,
+  ITEM_IMAGES_DIR,
+  saveItemImage,
+} from './itemImages.ts';
 import { roundOffWeight, roundTargetWeight } from '../shared/targetWeight.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const PORT = Number(process.env.PORT || 3001);
 
+// app.listen throws synchronously on a bad port, before any handler above could
+// report it: PORT=300O (letter O) or PORT=99999 took the process down with a raw
+// stack and, since this runs at module load, before the serial port and SQLite
+// handle were ever opened. Validated here so the operator gets a sentence
+// instead.
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+  console.error(
+    `PORT must be a whole number between 1 and 65535, got ${JSON.stringify(process.env.PORT)}.`,
+  );
+  process.exit(1);
+}
+
 initDb();
 ensureTtsDirs();
+ensureItemImagesDir();
 
 export const app = express();
 
@@ -49,7 +69,14 @@ app.use((_req, res, next) => {
 //
 // This is a browser-side control only: it does not stop a device on the LAN from
 // calling the API directly, so it must not be mistaken for authentication.
-const CORS_ALWAYS_ALLOWED = ['http://localhost', 'https://localhost', 'capacitor://localhost'];
+const CORS_ALWAYS_ALLOWED = [
+  'http://localhost',
+  'https://localhost',
+  'http://127.0.0.1',
+  'https://127.0.0.1',
+  'http://192.168.1.33',
+  'capacitor://localhost',
+];
 const corsOrigins = [
   ...CORS_ALWAYS_ALLOWED,
   ...(process.env.CORS_ORIGIN || '')
@@ -57,6 +84,27 @@ const corsOrigins = [
     .map((origin) => origin.trim())
     .filter(Boolean),
 ];
+
+/**
+ * True when the browser origin may talk to the API.
+ *
+ * Loopback origins are compared without their port. The Android WebView always
+ * runs at http://localhost, but the same app served in a browser comes from
+ * http://localhost:3001, and Chrome sends an Origin header even on a same-origin
+ * POST. Treating those as different origins would let the API read fine and then
+ * reject every write from the browser, which looks like a server fault rather
+ * than a rejected origin. The port is not a security boundary on a device that
+ * is already only reachable from the shop LAN.
+ */
+const isAllowedOrigin = (origin: string): boolean => {
+  if (corsOrigins.includes(origin)) return true;
+  const match = /^([a-z][a-z0-9+.-]*):\/\/(\[[0-9a-f:.]+\]|(?:localhost|127\.0\.0\.1|\[::1\]))(?::\d{1,5})?$/i.exec(
+    origin,
+  );
+  if (!match) return false;
+  return CORS_ALWAYS_ALLOWED.includes(`${match[1].toLowerCase()}://${match[2].toLowerCase()}`);
+};
+
 // This must stay enabled: the Android app is a genuinely cross-origin client.
 // Its WebView runs at http://localhost and calls the API at the LAN address
 // typed into ServerScreen, so without these headers the WebView blocks every
@@ -65,7 +113,7 @@ const corsOrigins = [
 app.use('/api', (req, res, next) => {
   const origin = req.headers.origin;
   if (!origin) return next();
-  if (!corsOrigins.includes(origin)) {
+  if (!isAllowedOrigin(origin)) {
     return res.status(403).json({ error: 'Origin not allowed' });
   }
   res.setHeader('Access-Control-Allow-Origin', origin);
@@ -76,12 +124,17 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+// Item photos arrive as data: URLs, which are far larger than the JSON bodies
+// the rest of the API accepts. This parser is registered before the global one
+// below so the big body is not rejected with a 413 before it gets here.
+app.post('/api/items/:id/image', express.json({ limit: '8mb' }));
+
 app.use(express.json({ limit: '256kb' }));
 app.use('/tts', (req, res, next) => {
   // The voice clips are fetched from the same server by the Android WebView,
   // so they need the same origin allowance as the API.
   const origin = req.headers.origin;
-  if (origin && corsOrigins.includes(origin)) {
+  if (origin && isAllowedOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
   }
@@ -90,6 +143,12 @@ app.use('/tts', (req, res, next) => {
 app.use(
   '/tts',
   express.static(TTS_DIR, {
+    setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+  }),
+);
+app.use(
+  '/item-images',
+  express.static(ITEM_IMAGES_DIR, {
     setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
   }),
 );
@@ -112,13 +171,51 @@ const errorStatus = (err: unknown, fallback: number): number =>
 const errorMessage = (err: unknown, fallback: string): string =>
   err instanceof Error ? err.message : fallback;
 
+/**
+ * Plausible bounds for any weight the server will accept, in kilograms.
+ *
+ * A finite but absurd number is worse than a rejected one. roundOffWeight
+ * multiplies by 1000 before flooring, so a value above ~1.8e305 overflows that
+ * product to Infinity and the stored total becomes Inf. Every report then sums
+ * to Infinity, JSON renders it as null, and the dashboard is dead permanently
+ * from a single row. Bounding the input keeps that unreachable.
+ */
+const MIN_WEIGHT_KG = 0;
+const MAX_WEIGHT_KG = 1000;
+/**
+ * The YH-T7E frame carries six digit characters, so a reading such as 9999.9 kg
+ * is representable. A target above a tonne is a typo, but a *measured* weight
+ * above it is a real sack of maize, so the two need different ceilings.
+ */
+const MAX_ACTUAL_WEIGHT_KG = 10000;
+
 const parseOptionalWeight = (value: unknown): number | null => {
   const n = Number(value);
-  return Number.isFinite(n) ? n : null;
+  if (!Number.isFinite(n)) return null;
+  if (n < MIN_WEIGHT_KG || n > MAX_WEIGHT_KG) return null;
+  return n;
+};
+
+/** Same guard, against the scale's own ceiling rather than the target's. */
+const parseActualWeight = (value: unknown): number | null => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n < MIN_WEIGHT_KG || n > MAX_ACTUAL_WEIGHT_KG) return null;
+  return n;
 };
 
 /** `YYYY-MM-DDTHH:MM` with an optional `:SS`, matching localIsoNow(). */
 const WEIGHED_AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
+
+/**
+ * How far a client's clock may disagree with the server's before the timestamp
+ * is refused. Reports bucket on substr(weighed_at, 1, 7) and the month and day
+ * views require an exact match, so a bill dated three years out appears in no
+ * report at all and cannot be deleted or corrected. A tablet with a wrong
+ * clock is a routine thing on a farm network, so this is a wide but finite
+ * window rather than no check at all.
+ */
+const WEIGHED_AT_SKEW_MS = 36 * 60 * 60 * 1000;
 
 /**
  * Normalises a client-supplied timestamp, or returns null when it is not a
@@ -144,6 +241,10 @@ const normalizeWeighedAt = (value: unknown): string | null => {
   ) {
     return null;
   }
+  // Compare against the clock as it is right now, not against the moment this
+  // module happened to be loaded. A const captured at boot turns the window
+  // into "uptime must be under 36h" and silently stops every save on day two.
+  if (Math.abs(parsed.getTime() - Date.now()) > WEIGHED_AT_SKEW_MS) return null;
   return stamp;
 };
 
@@ -158,6 +259,8 @@ interface ItemRow {
   name_bn: string;
   name_ta: string;
   created_at: string;
+  /** Path of the item photo, or null when the item has no picture. */
+  image_path: string | null;
 }
 
 interface FormulaRow {
@@ -273,8 +376,10 @@ app.get('/api/health', (_req, res) => {
 
 // ---------------------------------------------------------------------------
 // Weighing scale (YH-T7E / YAOHUA over serial).
-// SCALE_ENABLED=0 keeps the reader dormant so the API can run on machines
-// with no scale attached (the simulation mode does not need it).
+// SCALE_ENABLED=0 keeps the reader dormant so the API can still serve the item
+// master and reports on a machine with no scale wired up. Weighing itself needs
+// the scale, so a client pointed at such a server will report the scale offline
+// rather than accepting anything.
 // ---------------------------------------------------------------------------
 const scaleEnabled = process.env.SCALE_ENABLED !== '0';
 const scale = new ScaleService();
@@ -319,6 +424,7 @@ const toItemJson = (row: ItemRow) => ({
   code: row.code,
   name: row.name,
   names: { en: row.name, hi: row.name_hi, bn: row.name_bn, ta: row.name_ta },
+  imagePath: row.image_path || null,
   createdAt: row.created_at,
 });
 
@@ -336,10 +442,11 @@ const slugify = (text: string): string =>
     .replace(/^-|-$/g, '') || 'item';
 
 app.post('/api/items', async (req, res) => {
-  const name = cleanName(req.body.name, 'Item name');
+  const body = req.body || {};
+  const name = cleanName(body.name, 'Item name');
 
   for (const [field, label] of Object.entries(NATIVE_FIELD_LABELS)) {
-    const val = String(req.body[field] || '').trim();
+    const val = String(body[field] || '').trim();
     if (val.length > MAX_NATIVE_LENGTH) {
       return res.status(400).json({ error: `${label} must be ${MAX_NATIVE_LENGTH} characters or fewer` });
     }
@@ -392,9 +499,60 @@ app.post('/api/items', async (req, res) => {
   res.status(201).json(toItemJson(row as ItemRow));
 });
 
+/**
+ * Attaches (or replaces) an item photo. The bytes are written to
+ * server/storage/item-images and only the resulting path goes into the row, so
+ * the database never stores image data.
+ */
+app.post('/api/items/:id/image', (req, res) => {
+  const id = Number(req.params.id);
+  const row = queryOne<ItemRow>('SELECT * FROM items WHERE id = ?', id);
+  if (!row) {
+    return res.status(404).json({ error: 'Item not found' });
+  }
+
+  let stored: { bytes: Buffer; ext: string };
+  try {
+    stored = decodeImageDataUrl((req.body || {}).dataUrl);
+  } catch (err) {
+    return res.status(400).json({ error: errorMessage(err, 'Invalid image') });
+  }
+
+  const imagePath = saveItemImage(row.slug, stored.bytes, stored.ext);
+  try {
+    run('UPDATE items SET image_path = ? WHERE id = ?', imagePath, id);
+  } catch (err) {
+    // Nothing will ever point at the file we just wrote, and nothing sweeps the
+    // directory, so a failed UPDATE would leak 4MB per attempt until the card fills.
+    deleteItemImage(imagePath);
+    throw err;
+  }
+  // Only drop the old picture once the new one is safely on disk, so a failed
+  // upload never leaves the item with no picture at all.
+  if (row.image_path) deleteItemImage(row.image_path);
+
+  const updated = queryOne<ItemRow>('SELECT * FROM items WHERE id = ?', id);
+  res.json(toItemJson(updated as ItemRow));
+});
+
+/** Clears the item photo and deletes the file it pointed at. */
+app.delete('/api/items/:id/image', (req, res) => {
+  const id = Number(req.params.id);
+  const row = queryOne<ItemRow>('SELECT * FROM items WHERE id = ?', id);
+  if (!row) {
+    return res.status(404).json({ error: 'Item not found' });
+  }
+  run('UPDATE items SET image_path = NULL WHERE id = ?', id);
+  deleteItemImage(row.image_path);
+  res.json(toItemJson(queryOne<ItemRow>('SELECT * FROM items WHERE id = ?', id) as ItemRow));
+});
+
 app.delete('/api/items/:id', (req, res) => {
   const id = Number(req.params.id);
-  const row = queryOne<{ slug: string }>('SELECT slug FROM items WHERE id = ?', id);
+  const row = queryOne<{ slug: string; image_path: string | null }>(
+    'SELECT slug, image_path FROM items WHERE id = ?',
+    id,
+  );
   if (!row) {
     return res.status(404).json({ error: 'Item not found' });
   }
@@ -416,6 +574,9 @@ app.delete('/api/items/:id', (req, res) => {
 
   run('DELETE FROM items WHERE id = ?', id);
   deleteItemAudio(row.slug);
+  // The photo file outlives the row unless it is removed with it, otherwise
+  // server/storage/item-images slowly fills up with orphans.
+  deleteItemImage(row.image_path);
   res.json({ ok: true });
 });
 
@@ -503,6 +664,7 @@ app.post('/api/formulas', (req, res) => {
     'INSERT INTO formula_lines (formula_id, item_id, item_name, required_weight, position) VALUES (?, ?, ?, ?, ?)';
 
   db.exec('BEGIN');
+  let committed = false;
   try {
     const info = run(insertFormulaSql, parsed.name, itemCount, totalWeight);
     const formulaId = Number(info.lastInsertRowid);
@@ -510,6 +672,7 @@ app.post('/api/formulas', (req, res) => {
       run(insertLineSql, formulaId, line.itemId, line.itemName, line.requiredWeight, index),
     );
     db.exec('COMMIT');
+    committed = true;
     const row = queryOne<FormulaRow>('SELECT * FROM formulas WHERE id = ?', formulaId);
     res.status(201).json(
       toFormulaJson(
@@ -518,7 +681,15 @@ app.post('/api/formulas', (req, res) => {
       ),
     );
   } catch (err) {
-    db.exec('ROLLBACK');
+    // Rolling back a transaction that already committed throws in better-sqlite3
+    // and would bury the real error under "no transaction is active".
+    if (!committed) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        // already closed
+      }
+    }
     console.error(err);
     res.status(500).json({ error: 'Failed to save formula' });
   }
@@ -551,6 +722,7 @@ app.put('/api/formulas/:id', (req, res) => {
     Math.round(parsed.lines.reduce((sum, line) => sum + line.requiredWeight, 0) * 1000) / 1000;
 
   db.exec('BEGIN');
+  let committed = false;
   try {
     run(
       'UPDATE formulas SET name = ?, item_count = ?, total_weight = ? WHERE id = ?',
@@ -571,6 +743,7 @@ app.put('/api/formulas/:id', (req, res) => {
       ),
     );
     db.exec('COMMIT');
+    committed = true;
     const row = queryOne<FormulaRow>('SELECT * FROM formulas WHERE id = ?', id);
     res.json(
       toFormulaJson(
@@ -579,7 +752,13 @@ app.put('/api/formulas/:id', (req, res) => {
       ),
     );
   } catch (err) {
-    db.exec('ROLLBACK');
+    if (!committed) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        // already closed
+      }
+    }
     console.error(err);
     res.status(500).json({ error: 'Failed to update formula' });
   }
@@ -614,15 +793,38 @@ app.post('/api/weighings', (req, res) => {
     const itemId = Number.isFinite(Number(raw.itemId)) ? Math.floor(Number(raw.itemId)) : null;
     const name = String(raw.itemName || '').trim() || 'Item';
     const weight = parseOptionalWeight(raw.requiredWeight);
-    if (weight == null || weight <= 0) continue;
-    const actual = parseOptionalWeight(raw.actualWeight);
+    const actual = parseActualWeight(raw.actualWeight);
+    // A measured weight is optional, and "not weighed" is a normal bill. But a
+    // reading that was sent and is out of range is a real fault, and recording
+    // it as "not recorded" would hide a broken scale behind a 201 forever.
+    if (
+      raw.actualWeight != null &&
+      raw.actualWeight !== '' &&
+      Number.isFinite(Number(raw.actualWeight)) &&
+      actual == null
+    ) {
+      return res.status(400).json({
+        error: `"${name}" reports a measured weight of ${JSON.stringify(raw.actualWeight)} kg, which is outside the ${MAX_ACTUAL_WEIGHT_KG} kg the scale can read`,
+      });
+    }
+    // A line that cannot be stored is refused rather than skipped. Silently
+    // dropping it saved a bill with fewer lines than were actually weighed, and
+    // the operator was shown a bill they never produced.
+    if (weight == null || weight <= 0 || roundTargetWeight(weight) <= 0) {
+      return res.status(400).json({
+        error: `"${name}" has a required weight of ${JSON.stringify(raw.requiredWeight)} kg, which is not a usable weight`,
+      });
+    }
     lines.push({
       itemId,
       itemName: name.slice(0, MAX_NAME_LENGTH),
       requiredWeight: roundTargetWeight(weight),
       // Rounded like the target, so a bill shows the same whole kilograms the
-      // operator was shown when the line was accepted.
-      actualWeight: actual != null && actual >= 0 ? roundOffWeight(actual) : null,
+      // operator was shown when the line was accepted. A measured weight that
+      // floors to nothing is recorded as "not recorded" rather than as a
+      // misleading 0.000, which is indistinguishable from a real empty pan.
+      actualWeight:
+        actual != null && actual > 0 && roundOffWeight(actual) > 0 ? roundOffWeight(actual) : null,
     });
   }
   if (lines.length === 0) {
@@ -645,14 +847,37 @@ app.post('/api/weighings', (req, res) => {
   }
   const formulaName = String(body.formulaName || '').trim().slice(0, MAX_NAME_LENGTH) || null;
 
+  // The client generates this once per weighing and repeats it on a retry, so
+  // a replay of an already-saved batch returns the original bill instead of
+  // creating a second one.
+  const clientRef = /^[A-Za-z0-9_-]{8,64}$/.test(String(body.ref ?? ''))
+    ? String(body.ref)
+    : null;
+  if (clientRef) {
+    const existing = queryOne<WeighingRow>(
+      'SELECT * FROM weighings WHERE client_ref = ?',
+      clientRef,
+    );
+    if (existing) {
+      const storedLines = queryAll<Omit<WeighingLineRow, 'weighing_id'>>(
+        'SELECT id, item_id AS itemId, item_name AS itemName, required_weight AS requiredWeight, actual_weight AS actualWeight FROM weighing_lines WHERE weighing_id = ? ORDER BY id ASC',
+        existing.id,
+      );
+      return res
+        .status(200)
+        .json({ ...toBillJson(existing), lines: storedLines, deduplicated: true });
+    }
+  }
+
   const insertWeighingSql =
-    'INSERT INTO weighings (batch_no, weighed_at, item_count, total_weight, formula_name) VALUES (?, ?, ?, ?, ?)';
+    'INSERT INTO weighings (batch_no, weighed_at, item_count, total_weight, formula_name, client_ref) VALUES (?, ?, ?, ?, ?, ?)';
   const insertLineSql =
     'INSERT INTO weighing_lines (weighing_id, item_id, item_name, required_weight, actual_weight) VALUES (?, ?, ?, ?, ?)';
 
+  let committed = false;
   db.exec('BEGIN');
   try {
-    const info = run(insertWeighingSql, '', weighedAt, itemCount, Math.round(totalWeight * 1000) / 1000, formulaName);
+    const info = run(insertWeighingSql, '', weighedAt, itemCount, Math.round(totalWeight * 1000) / 1000, formulaName, clientRef);
     const id = Number(info.lastInsertRowid);
     const batchNo = `WS-${String(id).padStart(5, '0')}`;
     run('UPDATE weighings SET batch_no = ? WHERE id = ?', batchNo, id);
@@ -660,10 +885,20 @@ app.post('/api/weighings', (req, res) => {
       run(insertLineSql, id, line.itemId, line.itemName, line.requiredWeight, line.actualWeight ?? null);
     }
     db.exec('COMMIT');
+    committed = true;
     const bill = queryOne<WeighingRow>('SELECT * FROM weighings WHERE id = ?', id);
     res.status(201).json({ ...toBillJson(bill as WeighingRow), lines });
   } catch (err) {
-    db.exec('ROLLBACK');
+    // Only roll back a transaction that is still open. Rolling back after the
+    // COMMIT throws "no transaction is active", which replaced the real error
+    // with a confusing one and hid what actually went wrong.
+    if (!committed) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        // Already rolled back or never started; nothing to undo.
+      }
+    }
     console.error(err);
     res.status(500).json({ error: 'Failed to save weighing' });
   }
@@ -679,7 +914,8 @@ const toBillJson = (row: WeighingRow) => ({
 });
 
 app.get('/api/weighings', (req, res) => {
-  const limit = Math.min(Number(req.query.limit) || 100, 500);
+  // SQLite reads a negative LIMIT as "no limit at all", so the floor matters.
+  const limit = Math.max(1, Math.min(Number(req.query.limit) || 100, 500));
   const rows = queryAll<WeighingRow>(
     'SELECT * FROM weighings ORDER BY weighed_at DESC, id DESC LIMIT ?',
     limit,
@@ -770,6 +1006,76 @@ app.get('/api/reports/monthly', (req, res) => {
   res.json({ year, month, key, summary, perItem, perFormula });
 });
 
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Validates a day as a real calendar date, not merely a well-shaped string, so
+ * a typo such as 2026-02-31 is rejected instead of quietly returning a report
+ * with no rows in it.
+ */
+const normalizeDay = (value: unknown): string | null => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!DAY_PATTERN.test(raw)) return null;
+  const [y, m, d] = raw.split('-').map(Number);
+  // new Date() rolls impossible values over (Feb 31 becomes Mar 3), so the
+  // round-trip comparison is what actually catches them.
+  const parsed = new Date(y, m - 1, d);
+  if (
+    parsed.getFullYear() !== y ||
+    parsed.getMonth() + 1 !== m ||
+    parsed.getDate() !== d
+  ) {
+    return null;
+  }
+  return raw;
+};
+
+app.get('/api/reports/daily', (req, res) => {
+  const date = normalizeDay(req.query.date);
+  if (!date) {
+    return res.status(400).json({ error: 'date is required as YYYY-MM-DD' });
+  }
+
+  const summary = queryOne<OverviewTotalsRow>(
+    `SELECT COUNT(*) AS bills,
+            COALESCE(SUM(item_count), 0) AS items,
+            ROUND(COALESCE(SUM(total_weight), 0), 3) AS totalKg
+     FROM weighings WHERE substr(weighed_at, 1, 10) = ?`,
+    date,
+  );
+
+  const perItem = queryAll<PerItemRow>(
+    `SELECT item_name AS itemName,
+            COUNT(*) AS times,
+            ROUND(SUM(required_weight), 3) AS totalKg
+     FROM weighing_lines
+     WHERE weighing_id IN (SELECT id FROM weighings WHERE substr(weighed_at, 1, 10) = ?)
+     GROUP BY item_name
+     ORDER BY totalKg DESC, itemName ASC`,
+    date,
+  );
+
+  const perFormula = queryAll<PerFormulaRow>(
+    `SELECT formula_name AS formulaName,
+            COUNT(*) AS bills,
+            ROUND(SUM(total_weight), 3) AS totalKg
+     FROM weighings
+     WHERE substr(weighed_at, 1, 10) = ? AND formula_name IS NOT NULL
+     GROUP BY formula_name
+     ORDER BY totalKg DESC, formulaName ASC`,
+    date,
+  );
+
+  // The bill-by-bill list is what the day view adds over the month view: it
+  // shows the order and timing of production, not just the day's totals.
+  const bills = queryAll<WeighingRow>(
+    'SELECT * FROM weighings WHERE substr(weighed_at, 1, 10) = ? ORDER BY weighed_at ASC, id ASC',
+    date,
+  ).map(toBillJson);
+
+  res.json({ date, summary, perItem, perFormula, bills });
+});
+
 app.get('/api/reports/yearly', (req, res) => {
   const year = Number(req.query.year);
   if (!Number.isInteger(year)) {
@@ -836,7 +1142,12 @@ app.use('/api', (_req, res) => {
 app.use(
   (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     console.error(err);
-    const status = errorStatus(err, 500);
+    // body-parser and express attach their own 4xx status to malformed or
+    // oversized bodies. Falling back to 500 there told the operator their
+    // tablet was at fault when the request was simply unreadable.
+    const reported = (err as { status?: number; statusCode?: number } | null)?.status
+      ?? (err as { status?: number; statusCode?: number } | null)?.statusCode;
+    const status = errorStatus(err, typeof reported === 'number' ? reported : 500);
     res
       .status(status)
       .json({ error: status === 500 ? 'Server error' : errorMessage(err, 'Server error') });
@@ -851,9 +1162,15 @@ if (process.env.NODE_ENV !== 'test') {
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
       console.error(`Port ${PORT} is already in use — is another server already running?`);
-      process.exit(1);
+    } else if (err.code === 'EACCES') {
+      console.error(`Not allowed to bind port ${PORT}. Ports below 1024 need elevated rights.`);
+    } else {
+      // Re-thrown, this became an uncaughtException: the process died without
+      // closing the serial port or the database. Anything else is equally
+      // fatal to a server that cannot listen.
+      console.error(`Server could not start: ${err.message}`);
     }
-    throw err;
+    process.exit(1);
   });
 
   // A kiosk gets restarted, suspended and unplugged. Without this the process

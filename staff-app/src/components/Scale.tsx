@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { fmtWeightNoUnit, round3 } from '../lib/weights.ts';
 
-const TWEEN_MS = 650;
-const LIVE_TWEEN_MS = 120;
+const TWEEN_MS = 120;
 const SETTLE_MS = 420;
 const MAX_DEFLECTION = 3;
 
@@ -19,19 +18,21 @@ export interface ScaleProps {
    * false over-range warning.
    */
   maxScale?: number;
-  /** True when the reading is streamed from the real device. */
-  live?: boolean;
-  /** Device-reported stability; overrides the animated guess when provided. */
+  /**
+   * Device-reported stability. While this is null the dial falls back to its
+   * own settle guess, which is the best it can do before the machine has said
+   * anything.
+   */
   liveStable?: boolean | null;
 }
 
 export function Scale({
   value,
   maxScale = 50,
-  live = false,
   liveStable = null,
 }: ScaleProps) {
-  const target = value ?? 0;
+  const hasReading = value != null && Number.isFinite(value);
+  const target = hasReading ? (value as number) : 0;
   const [displayed, setDisplayed] = useState(0);
   const [settling, setSettling] = useState(false);
   const [settled, setSettled] = useState(false);
@@ -40,10 +41,15 @@ export function Scale({
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // The device decides when a weighing has stopped moving; the animation only
-  // guesses that for typed readings.
-  const stable = live && liveStable !== null && liveStable !== undefined
-    ? Boolean(liveStable)
-    : settled;
+  // guesses that until the machine reports its own flag. With no live reading
+  // there is nothing that has settled at all -- tweening to zero would light
+  // STABLE and ZERO on a scale that is merely disconnected, which reads as
+  // "the pan is empty" when the truth is "nothing is being reported".
+  const stable = !hasReading
+    ? false
+    : liveStable !== null && liveStable !== undefined
+      ? Boolean(liveStable)
+      : settled;
 
   useEffect(() => {
     displayedRef.current = displayed;
@@ -52,7 +58,7 @@ export function Scale({
   useEffect(() => {
     const to = target;
     const from = displayedRef.current;
-    const duration = live ? LIVE_TWEEN_MS : TWEEN_MS;
+    const duration = TWEEN_MS;
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
     setSettling(false);
@@ -82,7 +88,7 @@ export function Scale({
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
     };
-  }, [target, live]);
+  }, [target]);
 
   // Purely cosmetic: the drawn pan needs some full-scale to deflect against.
   // It is deliberately not the machine's rated capacity, which is unknown and
@@ -95,7 +101,7 @@ export function Scale({
       <div className="scale-lcd-bezel">
         <div className="scale-lcd">
           <span className="scale-reading" data-status={stable ? 'on' : 'transit'}>
-            {fmtWeightNoUnit(displayed)}
+            {hasReading ? fmtWeightNoUnit(displayed) : '—.———'}
           </span>
           <span className="scale-lcd-unit">kg</span>
         </div>
@@ -108,7 +114,7 @@ export function Scale({
             <span className={`lamp-dot zero ${stable && zeroed ? 'on' : ''}`} />
             <span>ZERO</span>
           </div>
-          <div className="lamp lamp-note">{live ? 'LIVE · YH-T7E' : 'SIMULATION'}</div>
+          <div className="lamp lamp-note">LIVE · YH-T7E</div>
         </div>
         <div className="scale-brand">
           <span>DIGITAL SCALE</span>

@@ -29,6 +29,13 @@ export default defineConfig({
         target: API_TARGET,
         changeOrigin: true,
       },
+      // Without this the item photos 404 in dev while working in production,
+      // which is exactly the kind of difference that hides a real bug until
+      // after deployment.
+      '/item-images': {
+        target: API_TARGET,
+        changeOrigin: true,
+      },
     },
   },
 });

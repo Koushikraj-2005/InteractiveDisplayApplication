@@ -6,16 +6,29 @@ import type {
   SerialPortInfo,
 } from '../../shared/scale.ts';
 import { api } from '../api.ts';
-import { apiUrl } from './serverAddress.ts';
-import { parseWeight } from './weights.ts';
+import { apiUrl, getServerOrigin, subscribeToServerAddress } from './serverAddress.ts';
 
 const STREAM_URL = () => apiUrl('/scale/stream');
-const MODE_KEY = 'koushi-weight-mode';
 
-export const MODE_SIMULATION = 'simulation';
-export const MODE_WEIGHING = 'weighing';
+/**
+ * The address the stream is currently pointed at. Re-created on every change so
+ * that editing the server address on the SERVER tab rebuilds the EventSource
+ * instead of leaving it reconnecting to the old host forever.
+ */
+function useServerOriginTick(): string {
+  const [origin, setOrigin] = useState(() => getServerOrigin() ?? '');
+  useEffect(() => subscribeToServerAddress(() => setOrigin(getServerOrigin() ?? '')), []);
+  return origin;
+}
 
-export type WeightMode = typeof MODE_SIMULATION | typeof MODE_WEIGHING;
+/**
+ * A reading is only trustworthy for as long as the machine keeps sending.
+ * The server polls at 100ms, so a frame this old means the link has wedged
+ * (scale off, USB replugged, server stalled) and the number on screen is a
+ * leftover rather than a live weight. Accepting a frozen value would let an
+ * empty pan pass for a full one, so it is dropped instead.
+ */
+const READING_STALE_MS = 2000;
 
 /** The device state the UI renders, flattened for convenience. */
 export interface DeviceState {
@@ -43,17 +56,6 @@ const IDLE_DEVICE: DeviceState = {
   bytesReceived: 0,
 };
 
-function readInitialMode(): WeightMode {
-  if (typeof window === 'undefined') return MODE_SIMULATION;
-  try {
-    return window.localStorage.getItem(MODE_KEY) === MODE_WEIGHING
-      ? MODE_WEIGHING
-      : MODE_SIMULATION;
-  } catch {
-    return MODE_SIMULATION;
-  }
-}
-
 const fromStatus = (status: ScaleStatusResponse | null | undefined): DeviceState => ({
   ...IDLE_DEVICE,
   ...status,
@@ -62,18 +64,24 @@ const fromStatus = (status: ScaleStatusResponse | null | undefined): DeviceState
 
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
+/** True when the frame is too old to still describe what is on the pan. */
+export function isReadingStale(reading: ScaleReading | null, now = Date.now()): boolean {
+  if (!reading) return true;
+  const at = Date.parse(reading.receivedAt);
+  if (!Number.isFinite(at)) return true;
+  return now - at > READING_STALE_MS;
+}
+
 /**
  * Single source of the current weight.
  *
- * simulation -> the operator types the reading into the keypad
- * weighing    -> the reading is streamed from the serial scale over SSE
- *
- * Also owns the device connection: port discovery, connect/disconnect and the
- * live status pushed by the server.
+ * The reading is streamed from the serial scale over SSE; there is no manual
+ * entry, so a number on screen always came from the machine. Also owns the
+ * device connection: port discovery, connect/disconnect and the live status
+ * pushed by the server.
  */
 export function useWeightSource() {
-  const [mode, setModeState] = useState<WeightMode>(readInitialMode);
-  const [raw, setRaw] = useState('');
+  const serverOrigin = useServerOriginTick();
   const [live, setLive] = useState<ScaleReading | null>(null);
   const [device, setDevice] = useState<DeviceState>(IDLE_DEVICE);
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
@@ -85,14 +93,10 @@ export function useWeightSource() {
   const liveRef = useRef<ScaleReading | null>(null);
   liveRef.current = live;
 
-  const setMode = useCallback((next: WeightMode) => {
-    setModeState(next);
-    try {
-      window.localStorage.setItem(MODE_KEY, next);
-    } catch {
-      // storage unavailable (private mode) — the toggle still works for this session
-    }
-  }, []);
+  // Connect and disconnect can be triggered twice before the first request
+  // settles (double tap, or a retry after a timeout). Letting both run leaves
+  // an orphaned serial handle on the server, so the second is dropped.
+  const deviceBusyRef = useRef(false);
 
   const refreshPorts = useCallback(async () => {
     setPortsLoading(true);
@@ -102,6 +106,10 @@ export function useWeightSource() {
       if (Array.isArray(data?.baudRates) && data.baudRates.length) {
         setBaudRates(data.baudRates);
       }
+      // Reaching the server at all clears a stale error. Otherwise one failed
+      // probe at boot pins the header to "SCALE ERROR" until the app is
+      // restarted, long after the cause has gone.
+      setDeviceError('');
     } catch (err) {
       setDeviceError(errText(err));
     } finally {
@@ -110,6 +118,8 @@ export function useWeightSource() {
   }, []);
 
   const connect = useCallback(async ({ port, baudRate }: ConnectOptions = {}) => {
+    if (deviceBusyRef.current) return false;
+    deviceBusyRef.current = true;
     setDeviceBusy(true);
     setDeviceError('');
     try {
@@ -120,11 +130,14 @@ export function useWeightSource() {
       setDeviceError(errText(err));
       return false;
     } finally {
+      deviceBusyRef.current = false;
       setDeviceBusy(false);
     }
   }, []);
 
   const disconnect = useCallback(async () => {
+    if (deviceBusyRef.current) return;
+    deviceBusyRef.current = true;
     setDeviceBusy(true);
     setDeviceError('');
     try {
@@ -134,13 +147,13 @@ export function useWeightSource() {
     } catch (err) {
       setDeviceError(errText(err));
     } finally {
+      deviceBusyRef.current = false;
       setDeviceBusy(false);
     }
   }, []);
 
-  // Live stream, only while the operator is actually using the device.
+  // Live stream. Always on: weighing has no other source.
   useEffect(() => {
-    if (mode !== MODE_WEIGHING) return undefined;
     let closed = false;
     const source = new EventSource(STREAM_URL());
 
@@ -153,6 +166,9 @@ export function useWeightSource() {
       }
       if (closed) return;
       setDevice(fromStatus(next));
+      // The server is answering, so any earlier probe failure is over. Leaving
+      // it set would keep an error banner up against a working scale.
+      setDeviceError('');
       // A dropped connection must not leave a stale weight looking valid.
       if (next?.status !== 'connected') setLive(null);
     };
@@ -164,7 +180,9 @@ export function useWeightSource() {
       } catch {
         return;
       }
-      if (closed || !Number.isFinite(next?.weight)) return;
+      if (closed) return;
+      if (!Number.isFinite(next?.weight)) return;
+      if (isReadingStale(next)) return;
       setLive(next);
     };
 
@@ -172,6 +190,10 @@ export function useWeightSource() {
     source.addEventListener('reading', onReading as EventListener);
     source.onerror = () => {
       if (closed) return;
+      // A dropped EventSource only fires onerror, so the last weight has to be
+      // dropped here too. Leaving it up would show a frozen number on screen
+      // while the header reports the scale as offline.
+      setLive(null);
       setDevice((d) => ({
         ...d,
         connected: false,
@@ -186,33 +208,37 @@ export function useWeightSource() {
       source.removeEventListener('reading', onReading as EventListener);
       source.close();
     };
-  }, [mode]);
+  }, [serverOrigin]);
 
-  // Discover the attached adapters as soon as device mode is in play.
+  // Expire a reading whose frames stopped arriving. The stream staying open
+  // does not prove the scale is still talking to it.
   useEffect(() => {
-    if (mode !== MODE_WEIGHING) return;
+    const timer = window.setInterval(() => {
+      setLive((current) => (isReadingStale(current) ? null : current));
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // Discover the attached adapters on mount.
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const status = await api.getScaleStatus();
         if (!cancelled) setDevice(fromStatus(status));
-      } catch {
-        // the stream below reports connection problems
+      } catch (err) {
+        if (!cancelled) setDeviceError(errText(err));
       }
     })();
     refreshPorts();
-  }, [mode, refreshPorts]);
+  }, [refreshPorts, serverOrigin]);
 
   const getReading = useCallback((): number | null => {
-    if (mode === MODE_WEIGHING) return liveRef.current?.weight ?? null;
-    return parseWeight(raw);
-  }, [mode, raw]);
+    const current = liveRef.current;
+    return current && !isReadingStale(current) ? current.weight : null;
+  }, []);
 
   return {
-    mode,
-    setMode,
-    raw,
-    setRaw,
     live,
     device,
     getReading,

@@ -62,6 +62,10 @@ function migrateLegacyRecipeTables() {
 }
 
 export function initDb() {
+  // Without this, SQLite reports "database is locked" the instant a second
+  // process touches the file -- a nightly backup, a VACUUM INTO, or the DB
+  // Browser open on a laptop. Waiting is far better than a 500 per bill.
+  db.exec('PRAGMA busy_timeout = 5000;');
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
 
@@ -136,6 +140,27 @@ export function initDb() {
     db.exec('ALTER TABLE weighing_lines ADD COLUMN actual_weight REAL');
     console.log('Migrated weighing_lines: added actual_weight column');
   }
+
+  // Item photos live as files under server/storage/item-images. The row keeps
+  // only the path, so the database never grows by the size of the pictures and
+  // a backup of the .db alone stays small.
+  if (!hasCol('items', 'image_path')) {
+    db.exec('ALTER TABLE items ADD COLUMN image_path TEXT');
+    console.log('Migrated items: added image_path column');
+  }
+
+  // Client generated reference for a bill, unique when present. A weighing is
+  // saved at the one moment most likely to fail on a shop Wi-Fi: if the server
+  // commits the insert and the response is lost, the operator presses RETRY
+  // SAVE. Without this column that retry writes a second identical bill, new
+  // batch number and all, and the batch is double counted in every report.
+  if (!hasCol('weighings', 'client_ref')) {
+    db.exec('ALTER TABLE weighings ADD COLUMN client_ref TEXT');
+    console.log('Migrated weighings: added client_ref column');
+  }
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_weighings_client_ref ON weighings(client_ref) WHERE client_ref IS NOT NULL',
+  );
 
   const count = Number(queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM items')?.n ?? 0);
   if (count === 0) {

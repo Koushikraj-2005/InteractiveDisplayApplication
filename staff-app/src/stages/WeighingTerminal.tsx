@@ -1,21 +1,17 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useState } from 'react';
 import type { ScaleReading } from '../../../shared/scale.ts';
+import { roundOffWeight } from '../../../shared/targetWeight.ts';
 import { alertsEnabled, primeAlertAudio, toggleAlertsEnabled } from '../../../shared/alerts.ts';
 import { secondsLeft } from '../../../shared/useAutoAdvance.ts';
 import { useVerdictAlert } from '../../../shared/useVerdictAlert.ts';
 import { stopNameLoop as stopUnderweightName } from '../../../shared/multilingualName.ts';
 import { useUnderweightName } from '../../../shared/useUnderweightName.ts';
-import {
-  fmtSignedDiff,
-  fmtWeight,
-  fmtWeightNoUnit,
-  parseWeight,
-  type ReadingVerdict,
-} from '../lib/weights.ts';
+import { fmtSignedDiff, fmtWeight, fmtWeightNoUnit, type ReadingVerdict } from '../lib/weights.ts';
 import { speakItem, stopSpeaking, voiceEngine } from '../lib/tts.ts';
 import { localizedName, VOICE_LANGS } from '../lib/items.ts';
+import { itemImageUrl } from '../lib/config.ts';
 import { Scale } from '../components/Scale.tsx';
-import type { DeviceState, WeightMode } from '../lib/weightSource.ts';
+import type { DeviceState } from '../lib/weightSource.ts';
 import type { CartItem, LangCode } from '../lib/types.ts';
 
 const voiceLabel = (code: LangCode): string => {
@@ -36,22 +32,27 @@ export interface WeighingTerminalProps {
   activeIndex: number;
   activeItem: CartItem | null;
   status: ReadingVerdict;
-  /** Raw text from the keypad; null/'' in live mode. */
-  reading: string | number | null;
+  /** The weight the machine last reported, or null when nothing is arriving. */
+  reading: number | null;
   nextEnabled: boolean;
+  /**
+   * True when the line is at its target but the machine has never reported the
+   * reading as settled. A scale that dithers a gram or two at rest never
+   * produces the three identical frames the server looks for, so without an
+   * escape the operator has no way forward but to abandon the whole batch.
+   */
+  forceNextEnabled?: boolean;
   /** Why the line is not advancing yet, e.g. the scale is not settled. */
   nextBlockedReason?: string | null;
   /**
-   * Milliseconds until the line advances by itself, 0 when not counting. There
-   * is no button: reaching the target is the only thing that moves a line on.
+   * Milliseconds until the line advances by itself, 0 when not counting.
    */
   autoAdvanceMs?: number;
   voiceLang: LangCode;
-  mode?: WeightMode;
   device?: DeviceState | null;
   live?: ScaleReading | null;
-  onReading?: (value: string) => void;
-  onNext?: () => void;
+  /** Called with true to advance a settled-looking line the machine never flagged. */
+  onNext?: (force?: boolean) => void;
   onCancel?: () => void;
 }
 
@@ -62,36 +63,45 @@ export function WeighingTerminal({
   status,
   reading,
   nextEnabled,
+  forceNextEnabled = false,
   nextBlockedReason = null,
   autoAdvanceMs = 0,
   voiceLang,
-  mode = 'simulation',
   device = null,
   live = null,
-  onReading,
   onNext,
   onCancel,
 }: WeighingTerminalProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const [alertsOn, setAlertsOn] = useState(alertsEnabled);
-  const isLive = mode === 'weighing';
-  const connected = isLive && Boolean(device?.connected);
-  const scaleLabel = isLive ? deviceStateLabel(device ?? {}) : 'SIMULATION';
-  const offline = isLive && !connected;
-  const current = parseWeight(reading);
+  const connected = Boolean(device?.connected);
+  const scaleLabel = deviceStateLabel(device ?? {});
+  const offline = !connected;
+  const current = reading;
   // Port is open but no usable reading: either the scale is silent, or it is
   // sending bytes we cannot frame. Both are almost always a wiring, cable-type
   // or baud-rate mismatch rather than a dead cable.
   const noReading = connected && current == null;
+  // What the readouts show. The reading is rounded to whole kilograms exactly
+  // like the target, so the operator sees the same figure the verdict used: a
+  // scale sitting on 51.2 kg for a 51 kg line reads 51.000 and is accepted,
+  // rather than showing 51.200 next to a target it can never match.
+  const shown = current == null ? null : roundOffWeight(current);
 
   useEffect(() => {
-    if (!activeItem) return;
+    if (!activeItem || status.type === 'underweight') return;
     // A deliberate repeat (new item, new language) wins over the loop: it stops
     // the cycle so the two never talk over each other.
     stopUnderweightName();
     speakItem(activeItem, voiceLang);
-    if (!isLive) inputRef.current?.focus();
-  }, [activeItem, voiceLang, isLive]);
+  }, [activeItem, status.type, voiceLang]);
+
+  // tts.ts promises that a screen change alone stops the voice. Without an
+  // unmount cleanup the item name keeps talking over whatever replaced this
+  // terminal, because nothing cancels the in-flight utterance.
+  useEffect(() => () => {
+    stopUnderweightName();
+    stopSpeaking();
+  }, []);
 
   // Underweight only: the name repeats in every language until the target is
   // reached, which is when `status.type` flips and the loop stops itself.
@@ -113,15 +123,11 @@ export function WeighingTerminal({
 
   useVerdictAlert(status.type, { enabled: alertsOn });
 
-  // These are optional so the terminal can be used read-only; guard at the
-  // call sites that render the interactive controls.
-  const handleReading = onReading ?? (() => {});
   const countingDown = autoAdvanceMs > 0;
   const handleNext = onNext ?? (() => {});
 
   if (!activeItem) return null;
 
-  const sourceLabel = isLive ? 'LIVE SERIAL READING (RS232)' : 'MANUAL ENTRY (SIMULATED)';
   const diffZone =
     status.difference == null
       ? 'neutral'
@@ -137,20 +143,18 @@ export function WeighingTerminal({
         <span className="terminal-title">WEIGHING TERMINAL</span>
         <span className="terminal-meta">
           <span className="terminal-item">
-            Machine: <b>{isLive ? 'DEVICE (YH-T7E)' : 'SIMULATION'}</b>
+            Machine: <b>YH-T7E</b>
           </span>
           <span className="terminal-item">
             Status:{' '}
-            <b className={offline ? 'b-warn' : 'b-ready'}>
-              {offline ? 'AWAITING DEVICE' : 'READY'}
-            </b>
+            <b className={offline ? 'b-warn' : 'b-ready'}>{offline ? 'AWAITING DEVICE' : 'READY'}</b>
           </span>
           <span
             className={`terminal-item terminal-scale terminal-scale-${scaleLabel.toLowerCase()}`}
           >
             Scale: <b>{scaleLabel}</b>
           </span>
-          <span className="terminal-item terminal-source">{sourceLabel}</span>
+          <span className="terminal-item terminal-source">LIVE SERIAL READING (RS232)</span>
           <span className="terminal-item terminal-source">
             Voice: {voiceLabel(voiceLang)} · ENGINE {voiceEngine()}
           </span>
@@ -200,8 +204,18 @@ export function WeighingTerminal({
               >
                 <span className="num">{String(index + 1).padStart(2, '0')}</span>
                 <span className="queue-item">
-                  <span className="queue-item-en">{item.name}</span>
-                  <span className="queue-item-local">{localizedName(item, voiceLang)}</span>
+                  {itemImageUrl(item.imagePath) && (
+                    <img
+                      className="queue-thumb"
+                      src={itemImageUrl(item.imagePath) as string}
+                      alt=""
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span className="queue-item-text">
+                    <span className="queue-item-en">{item.name}</span>
+                    <span className="queue-item-local">{localizedName(item, voiceLang)}</span>
+                  </span>
                 </span>
                 <span className="num">{fmtWeight(item.required)}</span>
                 <span className={`queue-status ${item.status}`}>
@@ -215,6 +229,13 @@ export function WeighingTerminal({
         <div className="panel scale-panel">
           <div className="current-item">
             <div className="current-item-label">CURRENT ITEM</div>
+            {itemImageUrl(activeItem.imagePath) && (
+              <img
+                className="current-item-photo"
+                src={itemImageUrl(activeItem.imagePath) as string}
+                alt={`${activeItem.name} picture`}
+              />
+            )}
             <div className="current-item-name">{activeItem.name.toUpperCase()}</div>
             <div className="current-item-local">{localizedName(activeItem, voiceLang)}</div>
             <div className="current-item-required">
@@ -232,86 +253,48 @@ export function WeighingTerminal({
           </div>
 
           <div className="scale-wrap">
-            <Scale
-              value={current}
-              live={isLive}
-              liveStable={live?.stable ?? null}
-            />
+            <Scale value={shown} liveStable={live?.stable ?? null} />
           </div>
         </div>
 
         <aside className="panel input-panel">
-          <div className="panel-title">
-            {isLive ? 'LIVE WEIGHT READOUT' : 'WEIGHT INPUT'}
-          </div>
+          <div className="panel-title">LIVE WEIGHT READOUT</div>
 
           <div className="metric">
             <div className="metric-label">Required Weight</div>
             <div className="metric-value">{fmtWeight(activeItem.required)}</div>
           </div>
 
-          {isLive ? (
-            <div className="metric metric-input metric-device">
-              <div className="metric-label">Current Weight (Live Scale)</div>
-              <div className="live-reading">
-                <span
-                  className={`live-reading-value ${connected ? '' : 'muted'}`}
-                >
-                  {current == null ? '—.———' : fmtWeightNoUnit(current)}
-                </span>
-                <span className="unit">kg</span>
-                {connected && live?.stable ? (
-                  <span className="live-stable-badge">STABLE</span>
-                ) : null}
-              </div>
-              <div className="metric-hint">
-                {connected
-                  ? `Reading from YH-T7E over RS232 (${device?.port} @ ${device?.baudRate} baud)`
-                  : `Waiting for ${device?.port || 'the scale'}…`}
-              </div>
-              {offline && (
-                <div className="device-error">
-                  {device?.message || 'The serial scale is offline.'} Select the USB
-                  adapter in the header, or switch back to SIMULATION mode.
-                </div>
-              )}
-              {noReading && (
-                <div className="device-error">
-                  {(device?.bytesReceived ?? 0) > 0
-                    ? `Port is open and ${device?.bytesReceived ?? 0} bytes have arrived, but none are valid YH-T7E weight frames.`
-                    : 'Port is open but the scale has sent no data at all.'}{' '}
-                  Check the RS232 cable (TX/RX swapped, or a TTL cable instead of
-                  RS232) and the baud rate.
-                </div>
-              )}
+          <div className="metric metric-input metric-device">
+            <div className="metric-label">Current Weight (Live Scale)</div>
+            <div className="live-reading">
+              <span className={`live-reading-value ${connected ? '' : 'muted'}`}>
+                {shown == null ? '—.———' : fmtWeightNoUnit(shown)}
+              </span>
+              <span className="unit">kg</span>
+              {connected && live?.stable ? <span className="live-stable-badge">STABLE</span> : null}
             </div>
-          ) : (
-            <div className="metric metric-input">
-              <div className="metric-label">Current Weight</div>
-              <div className="input-row">
-                <input
-                  ref={inputRef}
-                  id="current-weight"
-                  className="weight-input"
-                  type="number"
-                  step="0.001"
-                  min="0"
-                  placeholder="0.000"
-                  inputMode="decimal"
-                  value={reading ?? ''}
-                  onChange={(event) => handleReading(event.target.value)}
-                  onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-                    if (event.key === 'Enter') {
-                      handleReading(event.currentTarget.value);
-                      if (nextEnabled) handleNext();
-                    }
-                  }}
-                />
-                <span className="unit">kg</span>
-              </div>
-              <div className="metric-hint">Simulated scale reading</div>
+            <div className="metric-hint">
+              {connected
+                ? `Reading from YH-T7E over RS232 (${device?.port} @ ${device?.baudRate} baud)`
+                : `Waiting for ${device?.port || 'the scale'}…`}
             </div>
-          )}
+            {offline && (
+              <div className="device-error">
+                {device?.message || 'The serial scale is offline.'} Select the USB adapter and
+                press CONNECT in the scale settings at the top of the screen.
+              </div>
+            )}
+            {noReading && (
+              <div className="device-error">
+                {(device?.bytesReceived ?? 0) > 0
+                  ? `Port is open and ${device?.bytesReceived ?? 0} bytes have arrived, but none are valid YH-T7E weight frames.`
+                  : 'Port is open but the scale has sent no data at all.'}{' '}
+                Check the RS232 cable (TX/RX swapped, or a TTL cable instead of
+                RS232) and the baud rate.
+              </div>
+            )}
+          </div>
 
           <div className="metric">
             <div className="metric-label">Difference</div>
@@ -342,15 +325,21 @@ export function WeighingTerminal({
               <div className="status-detail">
                 {countingDown
                   ? 'Moving on by itself. Take the item off now.'
-                  : 'Wait for the scale to settle.'}
+                  : 'Waiting for the scale to report this reading as settled.'}
               </div>
             </div>
           )}
 
-          {/* No NEXT button: a line moves on by itself once the target weight
-              lands, so there is nothing to press and nothing to press it with.
-              The hint below is the only thing explaining a line that has not
-              moved, so it matters more now than it did. */}
+          {forceNextEnabled && !offline && (
+            <button
+              type="button"
+              className="btn btn-primary btn-next-line"
+              onClick={() => handleNext(true)}
+            >
+              NEXT LINE
+            </button>
+          )}
+
           {!nextEnabled && nextBlockedReason && !offline && (
             <div className="metric-hint next-blocked">{nextBlockedReason}</div>
           )}

@@ -1,4 +1,5 @@
 import { localizedName } from './items.ts';
+import { TTS_BASE } from './config.ts';
 import type { LangCode, NameBearing } from './types.ts';
 
 // Web Speech keeps speaking after the terminal unmounts unless every pending
@@ -120,7 +121,7 @@ function getCached(lang: string, id: string): HTMLAudioElement {
   const key = `${lang}/${id}`;
   let element = audioCache.get(key);
   if (!element) {
-    element = new Audio(`/tts/${lang}/${id}.mp3`);
+    element = new Audio(`${TTS_BASE}/${lang}/${id}.mp3`);
     element.preload = 'auto';
     element.onended = () => {
       if (currentAudio === element) currentAudio = null;

@@ -1,7 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { ApiError } from '../../shared/http.ts';
 import type { Item } from '../lib/types.ts';
 import { api } from '../api.ts';
+import { IMAGE_ACCEPT, fileToResizedDataUrl } from '../lib/itemImage.ts';
+import { itemImageUrl } from '../lib/serverAddress.ts';
 
 const NATIVE_FIELDS: Array<{ key: 'name_hi' | 'name_bn' | 'name_ta'; label: string; placeholder: string }> = [
   { key: 'name_hi', label: 'Hindi Name', placeholder: 'Optional' },
@@ -35,6 +37,17 @@ export function ItemsScreen({
   const [formOpen, setFormOpen] = useState(false);
   const [search, setSearch] = useState('');
 
+  // A picture picked in the ADD ITEM form. The data URL is what gets uploaded,
+  // and it doubles as the preview shown before the item is saved.
+  const [pickedImage, setPickedImage] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const addFileRef = useRef<HTMLInputElement | null>(null);
+  // Per-item picture editing in the master list. The id of the row currently
+  // being changed, plus the two-tap confirm used for removals.
+  const [editingImageId, setEditingImageId] = useState<number | null>(null);
+  const [removingImageId, setRemovingImageId] = useState<number | null>(null);
+  const editFileRef = useRef<HTMLInputElement | null>(null);
+
   const needle = search.trim().toLowerCase();
   const visibleItems = needle
     ? items.filter((item) =>
@@ -64,14 +77,95 @@ export function ItemsScreen({
     setSubmitting(true);
     setFormError('');
     try {
-      await api.createItem({ name: trimmedName, ...native });
+      const created = await api.createItem({ name: trimmedName, ...native });
+      // The picture is uploaded after the item exists, because the row has to
+      // exist before it can point at a file. A failure here leaves the item
+      // saved without a photo, which the operator can fix with EDIT PICTURE.
+      if (pickedImage) {
+        try {
+          await api.uploadItemImage(created.id, pickedImage);
+        } catch (err) {
+          setFormError(
+            `Item added, but the picture could not be uploaded: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
       setName('');
       setNative({ name_hi: '', name_bn: '', name_ta: '' });
+      setPickedImage(null);
       onItemsChanged();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : String(err));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  /** Opens the picker for the ADD ITEM form. */
+  function chooseNewImage() {
+    addFileRef.current?.click();
+  }
+
+  async function handlePickedImage(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Reset first so picking the same file twice still fires a change event.
+    event.target.value = '';
+    if (!file) return;
+    setImageBusy(true);
+    setFormError('');
+    try {
+      setPickedImage(await fileToResizedDataUrl(file));
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImageBusy(false);
+    }
+  }
+
+  /** Opens the picker for one row of the master list. */
+  function chooseExistingImage(item: Item) {
+    setEditingImageId(item.id);
+    setFormError('');
+    editFileRef.current?.click();
+  }
+
+  async function handleExistingImagePicked(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    const itemId = editingImageId;
+    setEditingImageId(null);
+    if (!file || itemId == null) return;
+
+    setImageBusy(true);
+    setFormError('');
+    try {
+      const dataUrl = await fileToResizedDataUrl(file);
+      await api.uploadItemImage(itemId, dataUrl);
+      onItemsChanged();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImageBusy(false);
+    }
+  }
+
+  async function handleRemoveImage(item: Item) {
+    if (removingImageId !== item.id) {
+      setRemovingImageId(item.id);
+      window.setTimeout(() => {
+        setRemovingImageId((current) => (current === item.id ? null : current));
+      }, 3000);
+      return;
+    }
+    setRemovingImageId(null);
+    setFormError('');
+    try {
+      await api.removeItemImage(item.id);
+      onItemsChanged();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -160,6 +254,50 @@ export function ItemsScreen({
                       />
                     </div>
                   ))}
+                  <div className="form-field">
+                    <div className="field-label">Picture</div>
+                    <input
+                      ref={addFileRef}
+                      type="file"
+                      accept={IMAGE_ACCEPT}
+                      className="visually-hidden-input"
+                      onChange={handlePickedImage}
+                    />
+                    <div className="item-image-picker">
+                      {pickedImage ? (
+                        <img
+                          className="item-image-preview"
+                          src={pickedImage}
+                          alt="Selected item picture"
+                        />
+                      ) : (
+                        <div className="item-image-preview item-image-empty" aria-hidden="true">
+                          NO PIC
+                        </div>
+                      )}
+                      <div className="item-image-picker-actions">
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={chooseNewImage}
+                          disabled={imageBusy}
+                        >
+                          {imageBusy ? 'READING…' : pickedImage ? 'CHOOSE OTHER' : 'UPLOAD PICTURE'}
+                        </button>
+                        {pickedImage && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setPickedImage(null)}
+                            disabled={imageBusy}
+                          >
+                            REMOVE
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="metric-hint">Optional. Resized automatically.</div>
+                  </div>
                 </div>
                 {formError && <div className="error-text">{formError}</div>}
                 <div className="items-form-actions">
@@ -178,6 +316,13 @@ export function ItemsScreen({
 
         <div className="panel items-list-panel">
           <div className="panel-title">MASTER LIST ({items.length})</div>
+          <input
+            ref={editFileRef}
+            type="file"
+            accept={IMAGE_ACCEPT}
+            className="visually-hidden-input"
+            onChange={handleExistingImagePicked}
+          />
           {hasItems && (
             <div className="items-search">
               <input
@@ -207,6 +352,7 @@ export function ItemsScreen({
                   <tr>
                     <th>Code</th>
                     <th>Name</th>
+                    <th>Picture</th>
                     <th>Hindi</th>
                     <th>Bengali</th>
                     <th>Tamil</th>
@@ -215,10 +361,38 @@ export function ItemsScreen({
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleItems.map((item: Item) => (
+                  {visibleItems.map((item: Item) => {
+                    const src = itemImageUrl(item.imagePath);
+                    return (
                     <tr key={item.id}>
                       <td data-label="Code" className="num item-code">{item.code}</td>
                       <td data-label="Name" className="item-name">{item.name}</td>
+                      <td data-label="Picture" className="item-picture-cell">
+                        {src ? (
+                          <img className="item-thumb" src={src} alt={`${item.name} picture`} />
+                        ) : (
+                          <div className="item-thumb item-thumb-empty" aria-hidden="true" />
+                        )}
+                        <div className="item-picture-actions">
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => chooseExistingImage(item)}
+                            disabled={imageBusy && editingImageId === item.id}
+                          >
+                            {src ? 'CHANGE' : 'ADD'}
+                          </button>
+                          {src && (
+                            <button
+                              type="button"
+                              className={`btn btn-secondary btn-sm${removingImageId === item.id ? ' confirming' : ''}`}
+                              onClick={() => handleRemoveImage(item)}
+                            >
+                              {removingImageId === item.id ? 'CONFIRM?' : 'CLEAR'}
+                            </button>
+                          )}
+                        </div>
+                      </td>
                       <td data-label="Hindi" className="item-native">{item.names.hi || '—'}</td>
                       <td data-label="Bengali" className="item-native">{item.names.bn || '—'}</td>
                       <td data-label="Tamil" className="item-native">{item.names.ta || '—'}</td>
@@ -240,7 +414,8 @@ export function ItemsScreen({
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

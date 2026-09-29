@@ -22,10 +22,12 @@
     "dev:all": "concurrently -k -n API,WEB,STAFF -c green,blue,magenta \"node server/index.ts\" \"vite\" \"vite --config staff-app/vite.config.ts\"",
     "scale:check": "node scripts/scale-check.ts",
     "scale:read": "node scripts/scale-read.ts",
-    "tts:download": "node scripts/download-tts.ts"
+    "tts:download": "node scripts/download-tts.ts",
+    "test": "node --test tests/*.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.1",
     "@capacitor/cli": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "react": "^18.3.1",

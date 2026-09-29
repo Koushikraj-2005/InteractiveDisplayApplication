@@ -41,6 +41,7 @@ export function ItemSelection({
 }: ItemSelectionProps) {
   const selectedItem = items.find((item: Item) => item.id === selectedItemId);
   const selectedFormula = formulas.find((formula: Formula) => formula.id === selectedFormulaId);
+  const cartTotal = cart.reduce((sum, item) => sum + item.required, 0);
 
   const selectItem = (id: number) => {
     onSelectItem(id);
@@ -117,7 +118,7 @@ export function ItemSelection({
   );
 
   return (
-    <section className="stage">
+    <section className="stage stage-with-action-bar">
       <div className="selection-layout">
         <div className="left-rail">
           <div className="panel">
@@ -215,7 +216,9 @@ export function ItemSelection({
                     </td>
                     <td className="num col-w">{fmtWeight(item.required)}</td>
                     <td className="col-status">
-                      <span className="chip chip-pending">Pending</span>
+                      <span className={`chip chip-${item.status}`}>
+                        {item.status === 'completed' ? 'Complete' : 'Pending'}
+                      </span>
                     </td>
                     <td className="col-x">
                       <button type="button" className="remove-btn" onClick={() => onRemove(item.uid)}>
@@ -227,7 +230,7 @@ export function ItemSelection({
               </tbody>
             </table>
           )}
-          <div className="panel-footer">
+          <div className="panel-footer weighing-list-footer">
             <button
               type="button"
               className="btn btn-primary btn-lg"
@@ -238,6 +241,32 @@ export function ItemSelection({
             </button>
           </div>
         </div>
+      </div>
+
+      {/*
+        On a phone the three panels stack, so this button used to sit at the
+        very bottom of a page more than two screens tall — past the whole item
+        master — and the operator had to scroll every time to start a batch.
+        This bar is pinned to the bottom of the viewport instead and carries
+        the running count and total, so the list can be checked at a glance
+        without scrolling. CSS hides it on desktop, where the panel footer
+        above is already visible and the page fits.
+      */}
+      <div className="select-action-bar" role="group" aria-label="Start weighing">
+        <div className="select-action-summary">
+          <span className="select-action-count">
+            {cart.length} {cart.length === 1 ? 'item' : 'items'}
+          </span>
+          <span className="select-action-total">{fmtWeight(cartTotal)}</span>
+        </div>
+        <button
+          type="button"
+          className="btn btn-primary btn-lg"
+          disabled={cart.length === 0}
+          onClick={onStart}
+        >
+          START WEIGHING
+        </button>
       </div>
     </section>
   );

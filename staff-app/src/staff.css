@@ -1,10 +1,8 @@
 /* ---------- Staff weighing terminal (standalone staff app) ---------- */
 
-.staff-header {
-  background: #17324a;
-  border-bottom: 1px solid #12283c;
-}
-
+/* The staff navbar used to be dark brown here, which made it the one bar in the
+   product that did not match the main app. It now inherits --header-bg like every
+   other app header, so both terminals look the same. */
 .staff-header-tag {
   margin-left: 8px;
   font-size:calc(10px * var(--font-scale));
@@ -28,7 +26,7 @@
 .staff-select-intro {
   text-align: center;
   padding-bottom: 14px;
-  border-bottom: 1px solid #e6e9ed;
+  border-bottom: 1px solid #ede6e6;
 }
 
 .staff-select-intro .screen-title {
@@ -65,7 +63,7 @@
 .staff-panel {
   display: flex;
   flex-direction: column;
-  border-left: 4px solid var(--blue);
+  border-left: 4px solid var(--brand);
   border-top: 1px solid var(--border);
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
@@ -73,6 +71,13 @@
 }
 
 .staff-panel-build {
+  border-left-color: var(--green);
+}
+
+/* The formula panel is the staff terminal's normal working path, so it carries
+   the same primary accent. It previously had no rule at all and fell back to
+   the default border, which made it look disabled. */
+.staff-panel-formula {
   border-left-color: var(--green);
 }
 
@@ -94,7 +99,7 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: var(--blue);
+  background: var(--brand);
   color: #ffffff;
   font-size:calc(11px * var(--font-scale));
   font-weight: 800;
@@ -108,6 +113,10 @@
   background: var(--green);
 }
 
+.staff-panel-formula .panel-num {
+  background: var(--green);
+}
+
 .staff-panel-single .panel-num {
   background: var(--amber);
 }
@@ -117,7 +126,7 @@
   font-family: var(--mono);
   font-size:calc(10.5px * var(--font-scale));
   color: var(--muted);
-  background: #e9ecf0;
+  background: #f0e9e9;
   border-radius: 10px;
   padding: 2px 9px;
   white-space: nowrap;
@@ -127,7 +136,7 @@
   padding: 6px 12px 8px;
   color: var(--muted);
   font-size:calc(12px * var(--font-scale));
-  border-bottom: 1px solid #eceff2;
+  border-bottom: 1px solid #f2ecec;
   line-height: 1.4;
 }
 
@@ -140,7 +149,7 @@
   min-height: 120px;
   max-height: 400px;
   overflow-y: auto;
-  background: #f8f9fb;
+  background: #fbf8f8;
 }
 
 .staff-list-scroll .panel-placeholder {
@@ -171,7 +180,7 @@
 }
 
 .staff-row:hover {
-  border-color: var(--blue);
+  border-color: var(--brand-ink);
   box-shadow: 0 0 0 2px rgba(47, 94, 163, 0.12);
 }
 
@@ -200,7 +209,7 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #ffffff;
-  background: var(--blue);
+  background: var(--brand);
   border-radius: 3px;
   padding: 6px 12px;
 }
@@ -289,7 +298,7 @@
   font-family: var(--mono);
   font-size:calc(12px * var(--font-scale));
   color: var(--muted);
-  background: #eef0f3;
+  background: #f3eeee;
   border-radius: 3px;
   padding: 3px 8px;
 }
@@ -395,7 +404,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  background: #f8f9fb;
+  background: #fbf8f8;
 }
 
 .staff-done-label {

@@ -1,4 +1,4 @@
-import { roundOffWeight } from '../../shared/targetWeight';
+import { roundOffWeight } from '../../shared/targetWeight.ts';
 
 /** How a live/placed weight compares to the weight the recipe requires. */
 export type ReadingVerdictType =

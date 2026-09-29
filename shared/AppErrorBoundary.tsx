@@ -34,11 +34,13 @@ export class AppErrorBoundary extends Component<Props, State> {
   };
 
   private clearStateAndReload = () => {
-    // Preferences are the only persisted state; clearing them fixes a bad
-    // saved mode that could otherwise crash the app on every boot.
+    // A bad stored preference can be what crashed the app on every boot, so
+    // clear them before reloading rather than re-throwing straight into the
+    // same error. The in-progress cart is left alone: it holds real weighed
+    // material, and losing it is worse than a repeat crash.
     try {
-      window.localStorage.removeItem('koushi-weight-mode');
       window.localStorage.removeItem('naveen.alertsEnabled');
+      window.localStorage.removeItem('naveen.fontScale');
     } catch {
       // storage unavailable; reload anyway
     }

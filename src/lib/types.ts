@@ -16,6 +16,12 @@ export interface Item {
   code: string;
   name: string;
   names: LocalizedNames;
+  /**
+   * Path of the item photo on the server, e.g. '/item-images/maize-a1b2.jpg'.
+   * Only the path is stored in the database; the picture itself is a file. Null
+   * when the item has no photo.
+   */
+  imagePath?: string | null;
   createdAt: string;
 }
 
@@ -97,6 +103,16 @@ export interface MonthlyReport {
   perFormula: PerFormulaTotal[];
 }
 
+/** One day of production: the same breakdowns as the month view, plus the
+ *  individual bills in the order they were weighed. */
+export interface DailyReport {
+  date: string;
+  summary: ReportTotals;
+  perItem: PerItemTotal[];
+  perFormula: PerFormulaTotal[];
+  bills: Bill[];
+}
+
 export interface YearlyReport {
   year: number;
   months: MonthlyBucket[];
@@ -114,6 +130,8 @@ export interface CartItem {
   slug: string;
   name: string;
   names: LocalizedNames;
+  /** Copied from the item when the line was queued, null when it has no photo. */
+  imagePath?: string | null;
   required: number;
   status: CartItemStatus;
   /** Filled in once the operator accepts this line. */

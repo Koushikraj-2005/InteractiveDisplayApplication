@@ -7,10 +7,10 @@
  * operator stuck, the target is snapped to a weight the scale can actually
  * show.
  *
- * The shop's rule is on the last digit:
+ * The shop's rule is on the last digit, and it always rounds DOWN:
  *
- *   .1 to .5  round off before  -> down to the lower whole kg
- *   .6 to .9  round off after   -> up to the next whole kg
+ *   50.4 kg -> 50 kg
+ *   50.6 kg -> 50 kg
  *
  * The rounded figure is what gets stored, so the bill, the formula and the
  * scale all show the same number and there is never a target/actual mismatch
@@ -21,8 +21,8 @@
 const MIN_TARGET_KG = 1;
 
 /**
- * The rounding rule on its own, with no floor: a weight is always rounded DOWN
- * to the whole kilogram below it. 50.8 kg becomes 50, 51.4 kg becomes 51.
+ * The shop's rule in one line: a weight is always rounded DOWN to the whole
+ * kilogram below it. 50.8 kg becomes 50, 51.4 kg becomes 51.
  *
  * A measured weight is rounded the same way a target is, so 51.2 kg on the
  * scale reads as 51 kg and matches a 51 kg target. A measured weight is never
@@ -35,7 +35,15 @@ export function roundOffWeight(kg: number): number {
   // hair under a kilogram because of floating-point noise is not treated as a
   // whole kilo less. A scale reporting 50.9999999999 means 51.000, and that has
   // to land on 51, not 50.
-  return Math.floor(Math.round(kg * 1000) / 1000);
+  //
+  // The scaled value is checked as well as the input: kg * 1000 overflows to
+  // Infinity for anything past ~1.8e305, and floor(Infinity) is still
+  // Infinity. An unsanitised client value that large would store Inf as the
+  // bill total, and every report then sums to Inf and serialises it as null,
+  // which kills the dashboard permanently from a single row.
+  const scaled = Math.round(kg * 1000);
+  if (!Number.isFinite(scaled)) return 0;
+  return Math.floor(scaled / 1000);
 }
 
 /**

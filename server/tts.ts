@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { httpError } from './errors.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const TTS_DIR = path.join(__dirname, 'storage', 'tts');
@@ -13,6 +14,14 @@ export type ItemNames = NativeNames & { en: string };
 const TARGET_LANGS: Lang[] = ['en', 'hi', 'bn', 'ta'];
 const TRANSLATE_LANGS: Array<keyof NativeNames> = ['hi', 'bn', 'ta'];
 const UA = { 'User-Agent': 'Mozilla/5.0' };
+/**
+ * A shop router with no WAN accepts the TCP connection and then never answers.
+ * Undici's own headers/body timeouts are 300s, so without this a single
+ * unreachable vendor costs minutes per call and the request that triggered it
+ * hangs with the item row already committed.
+ */
+const REMOTE_TIMEOUT_MS = 10_000;
+const remoteSignal = () => AbortSignal.timeout(REMOTE_TIMEOUT_MS);
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function ensureTtsDirs() {
@@ -23,8 +32,8 @@ export function ensureTtsDirs() {
 
 async function translateText(text: string, target: string): Promise<string> {
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${target}&dt=t&q=${encodeURIComponent(text)}`;
-  const res = await fetch(url, { headers: UA });
-  if (!res.ok) throw new Error(`translate http ${res.status}`);
+  const res = await fetch(url, { headers: UA, signal: remoteSignal() });
+  if (!res.ok) throw httpError(502, `translate http ${res.status}`);
   // The endpoint replies with [[segment, source, target, ...], ...].
   const data = (await res.json()) as unknown;
   const segments = Array.isArray(data) ? (data[0] as unknown) : undefined;
@@ -60,11 +69,11 @@ export async function resolveNames(
 
 async function downloadMp3(text: string, lang: string, filePath: string) {
   const url = `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=${lang}&q=${encodeURIComponent(text)}`;
-  const res = await fetch(url, { headers: UA });
+  const res = await fetch(url, { headers: UA, signal: remoteSignal() });
   const buffer = Buffer.from(await res.arrayBuffer());
   const type = res.headers.get('content-type') || '';
   if (!res.ok || buffer.length < 2000 || !type.includes('audio')) {
-    throw new Error(`bad tts http=${res.status} type=${type} bytes=${buffer.length}`);
+    throw httpError(502, `bad tts http=${res.status} type=${type} bytes=${buffer.length}`);
   }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, buffer);

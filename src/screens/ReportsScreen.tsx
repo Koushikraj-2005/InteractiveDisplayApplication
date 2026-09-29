@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.ts';
 import { fmtWeight } from '../lib/weights.ts';
 import type {
+  DailyReport,
   MonthlyReport,
   OverviewReport,
   ReportTotals,
@@ -37,7 +38,7 @@ interface ReportDoc {
   csvLines: Cell[][];
 }
 
-type ReportTab = 'overview' | 'monthly' | 'yearly';
+type ReportTab = 'overview' | 'daily' | 'monthly' | 'yearly';
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -45,6 +46,9 @@ function fmtStamp(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+/** The YYYY-MM-DD value a <input type="date"> expects. */
+const toDayValue = (d: Date): string => fmtStamp(d).slice(0, 10);
 
 function downloadCSV(filename: string, lines: Cell[][]): void {
   // Item and formula names are operator-entered, so a name beginning with =,
@@ -150,6 +154,97 @@ function buildMonthlyDoc(m: MonthlyReport, yy: number, mm: number): ReportDoc {
       [],
       ['Formula', 'Bills', 'Total Weight (kg)'],
       ...m.perFormula.map((e) => [e.formulaName, e.bills, e.totalKg.toFixed(3)]),
+      ['TOTAL', formulaTotals.bills, formulaTotals.kg.toFixed(3)],
+    ],
+  };
+}
+
+/** "27 SEPTEMBER 2026", matching how the month report labels its period. */
+function fmtDayLabel(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  const month = MONTH_NAMES[m - 1];
+  return month ? `${d} ${month.toUpperCase()} ${y}` : day;
+}
+
+/** weighed_at is 'YYYY-MM-DDTHH:MM:SS'; a day view only needs the clock part. */
+const billClock = (weighedAt: string): string => String(weighedAt).slice(11, 16);
+
+function buildDailyDoc(d: DailyReport): ReportDoc {
+  const label = fmtDayLabel(d.date);
+  const itemTotals = d.perItem.reduce(
+    (s, e) => ({ times: s.times + e.times, kg: s.kg + e.totalKg }),
+    { times: 0, kg: 0 },
+  );
+  const formulaTotals = d.perFormula.reduce(
+    (s, e) => ({ bills: s.bills + e.bills, kg: s.kg + e.totalKg }),
+    { bills: 0, kg: 0 },
+  );
+  return {
+    code: 'DLY',
+    title: 'Daily Production Report',
+    subtitle: 'Bill-by-bill, item and formula breakdown',
+    period: label,
+    summary: [
+      { label: 'Bills', value: String(d.summary.bills) },
+      { label: 'Items Weighed', value: String(d.summary.items) },
+      { label: 'Total Weight', value: fmtWeight(d.summary.totalKg) },
+    ],
+    sections: [
+      {
+        heading: `BILL DETAIL — ${label}`,
+        head: ['Time', 'Bill No', 'Formula', 'Items', 'Total Weight'],
+        align: ['l', 'l', 'l', 'r', 'r'],
+        body: d.bills.map((b) => [
+          b.weighedAt,
+          b.batchNo,
+          b.formulaName || '—',
+          String(b.itemCount),
+          fmtWeight(b.totalWeight),
+        ]),
+        totals: [
+          'TOTAL',
+          `${d.bills.length} bill${d.bills.length === 1 ? '' : 's'}`,
+          '',
+          String(d.summary.items),
+          fmtWeight(d.summary.totalKg),
+        ],
+        note: d.bills.length === 0 ? 'No bills were recorded on this day.' : null,
+      },
+      {
+        heading: `ITEM BREAKDOWN — ${label}`,
+        head: ['Item', 'Times Weighed', 'Total Weight'],
+        align: ['l', 'r', 'r'],
+        body: d.perItem.map((e) => [e.itemName, String(e.times), fmtWeight(e.totalKg)]),
+        totals: ['TOTAL', String(itemTotals.times), fmtWeight(itemTotals.kg)],
+        note: d.perItem.length === 0 ? 'No items were weighed on this day.' : null,
+      },
+      {
+        heading: `FORMULA BREAKDOWN — ${label}`,
+        head: ['Formula', 'Bills', 'Total Weight'],
+        align: ['l', 'r', 'r'],
+        body: d.perFormula.map((e) => [e.formulaName, String(e.bills), fmtWeight(e.totalKg)]),
+        totals: ['TOTAL', String(formulaTotals.bills), fmtWeight(formulaTotals.kg)],
+        note: d.perFormula.length === 0 ? 'No formula-based weighings were recorded on this day.' : null,
+      },
+    ],
+    csvFilename: `naveen-poultry-farms-daily-${d.date}.csv`,
+    csvLines: [
+      ['Time', 'Bill No', 'Formula', 'Items', 'Total Weight (kg)'],
+      ...d.bills.map((b) => [
+        b.weighedAt,
+        b.batchNo,
+        b.formulaName || '',
+        b.itemCount,
+        b.totalWeight.toFixed(3),
+      ]),
+      ['TOTAL', `${d.bills.length} bills`, '', d.summary.items, d.summary.totalKg.toFixed(3)],
+      [],
+      ['Item', 'Times Weighed', 'Total Weight (kg)'],
+      ...d.perItem.map((e) => [e.itemName, e.times, e.totalKg.toFixed(3)]),
+      ['TOTAL', itemTotals.times, itemTotals.kg.toFixed(3)],
+      [],
+      ['Formula', 'Bills', 'Total Weight (kg)'],
+      ...d.perFormula.map((e) => [e.formulaName, e.bills, e.totalKg.toFixed(3)]),
       ['TOTAL', formulaTotals.bills, formulaTotals.kg.toFixed(3)],
     ],
   };
@@ -306,6 +401,7 @@ const MONTH_NAMES = [
 
 const TABS: Array<{ key: ReportTab; label: string }> = [
   { key: 'overview', label: 'OVERVIEW' },
+  { key: 'daily', label: 'DAILY' },
   { key: 'monthly', label: 'MONTHLY' },
   { key: 'yearly', label: 'YEARLY' },
 ];
@@ -346,8 +442,13 @@ export function ReportsScreen() {
   const [yearlyLoading, setYearlyLoading] = useState(false);
   const [yearlyError, setYearlyError] = useState('');
 
+  const [daily, setDaily] = useState<DailyReport | null>(null);
+  const [dailyLoading, setDailyLoading] = useState(false);
+  const [dailyError, setDailyError] = useState('');
+
   const [selYear, setSelYear] = useState(now.getFullYear());
   const [selMonth, setSelMonth] = useState(now.getMonth() + 1);
+  const [selDay, setSelDay] = useState(() => toDayValue(now));
   const [printDoc, setPrintDoc] = useState<ReportDoc | null>(null);
   // Flipping through the year and month selects fires overlapping requests.
   // Without a sequence guard a slower earlier response could land last and
@@ -355,6 +456,7 @@ export function ReportsScreen() {
   const overviewSeq = useRef(0);
   const monthlySeq = useRef(0);
   const yearlySeq = useRef(0);
+  const dailySeq = useRef(0);
 
   const loadOverview = async () => {
     const seq = ++overviewSeq.current;
@@ -379,8 +481,26 @@ export function ReportsScreen() {
       overviewSeq.current += 1;
       monthlySeq.current += 1;
       yearlySeq.current += 1;
+      dailySeq.current += 1;
     };
   }, []);
+
+  const loadDaily = async (date: string) => {
+    const seq = ++dailySeq.current;
+    setDailyLoading(true);
+    setDailyError('');
+    try {
+      const data = await api.getDailyReport(date);
+      if (seq !== dailySeq.current) return;
+      if (!data || !Array.isArray(data.bills)) throw new Error('Unexpected report data');
+      setDaily(data);
+    } catch (err) {
+      if (seq !== dailySeq.current) return;
+      setDailyError(errText(err));
+    } finally {
+      if (seq === dailySeq.current) setDailyLoading(false);
+    }
+  };
 
   const loadMonthly = async (year: number, month: number) => {
     const seq = ++monthlySeq.current;
@@ -432,6 +552,10 @@ export function ReportsScreen() {
   useEffect(() => {
     if (tab === 'yearly') loadYearly(selYear);
   }, [tab, selYear]);
+
+  useEffect(() => {
+    if (tab === 'daily') loadDaily(selDay);
+  }, [tab, selDay]);
 
   const years = useMemo(() => {
     const set = new Set([now.getFullYear()]);
@@ -537,6 +661,182 @@ export function ReportsScreen() {
                       </td>
                       <td className="num text-right">{entry.bills}</td>
                       <td className="num text-right">{entry.items}</td>
+                      <td className="num text-right">{fmtWeight(entry.totalKg)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === 'daily' && (
+        <div className="report-body">
+          {daily && (
+            <div className="report-actions">
+              <button className="btn btn-secondary" type="button" onClick={() => setPrintDoc(buildDailyDoc(daily))}>
+                Download PDF
+              </button>
+              <button
+                className="btn btn-secondary"
+                type="button"
+                onClick={() => {
+                  const doc = buildDailyDoc(daily);
+                  downloadCSV(doc.csvFilename, doc.csvLines);
+                }}
+              >
+                Download CSV
+              </button>
+            </div>
+          )}
+          <div className="report-filters">
+            <label className="filter-field">
+              <span className="filter-label">Date</span>
+              <input
+                type="date"
+                className="select-input"
+                value={selDay}
+                max={toDayValue(now)}
+                onChange={(e) => e.target.value && setSelDay(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="stat-cards">
+            <StatCard label="Bills" value={daily?.summary.bills ?? 0} />
+            <StatCard label="Items" value={daily?.summary.items ?? 0} />
+            <StatCard label="Total Weight" value={daily?.summary.totalKg ?? 0} unit="kg" />
+          </div>
+
+          <div className="panel">
+            <div className="panel-title">BILL DETAIL — {fmtDayLabel(selDay)}</div>
+            {dailyLoading ? (
+              <div className="panel-placeholder">Loading…</div>
+            ) : dailyError ? (
+              <div className="panel-placeholder error-text">
+                {dailyError}{' '}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => loadDaily(selDay)}
+                >
+                  RETRY
+                </button>
+              </div>
+            ) : !daily ? (
+              <div className="panel-placeholder">Loading report…</div>
+            ) : daily.bills.length === 0 ? (
+              <div className="panel-placeholder">No weighings recorded for this day.</div>
+            ) : (
+              <table className="data-table report-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Bill No</th>
+                    <th>Formula</th>
+                    <th className="text-right">Items</th>
+                    <th className="text-right">Total Weight</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {daily.bills.map((bill) => (
+                    <tr key={bill.id}>
+                      <td className="num">{billClock(bill.weighedAt)}</td>
+                      <td className="num">{bill.batchNo}</td>
+                      <td className="item-name">{bill.formulaName || '—'}</td>
+                      <td className="num text-right">{bill.itemCount}</td>
+                      <td className="num text-right">{fmtWeight(bill.totalWeight)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="row-total">
+                    <td>TOTAL</td>
+                    <td>{daily.bills.length} bill{daily.bills.length === 1 ? '' : 's'}</td>
+                    <td />
+                    <td className="num text-right">{daily.summary.items}</td>
+                    <td className="num text-right">{fmtWeight(daily.summary.totalKg)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+
+          <div className="panel">
+            <div className="panel-title">ITEM BREAKDOWN — {fmtDayLabel(selDay)}</div>
+            {dailyLoading ? (
+              <div className="panel-placeholder">Loading…</div>
+            ) : dailyError ? (
+              <div className="panel-placeholder error-text">
+                {dailyError}{' '}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => loadDaily(selDay)}
+                >
+                  RETRY
+                </button>
+              </div>
+            ) : !daily ? (
+              <div className="panel-placeholder">Loading report…</div>
+            ) : daily.perItem.length === 0 ? (
+              <div className="panel-placeholder">No items were weighed on this day.</div>
+            ) : (
+              <table className="data-table report-table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th className="text-right">Times Weighed</th>
+                    <th className="text-right">Total Weight</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {daily.perItem.map((entry) => (
+                    <tr key={entry.itemName}>
+                      <td className="item-name">{entry.itemName}</td>
+                      <td className="num text-right">{entry.times}</td>
+                      <td className="num text-right">{fmtWeight(entry.totalKg)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="panel">
+            <div className="panel-title">FORMULA BREAKDOWN — {fmtDayLabel(selDay)}</div>
+            {dailyLoading ? (
+              <div className="panel-placeholder">Loading…</div>
+            ) : dailyError ? (
+              <div className="panel-placeholder error-text">
+                {dailyError}{' '}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => loadDaily(selDay)}
+                >
+                  RETRY
+                </button>
+              </div>
+            ) : !daily ? (
+              <div className="panel-placeholder">Loading report…</div>
+            ) : daily.perFormula.length === 0 ? (
+              <div className="panel-placeholder">No formula-based weighings on this day.</div>
+            ) : (
+              <table className="data-table report-table">
+                <thead>
+                  <tr>
+                    <th>Formula</th>
+                    <th className="text-right">Bills</th>
+                    <th className="text-right">Total Weight</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {daily.perFormula.map((entry) => (
+                    <tr key={entry.formulaName}>
+                      <td className="item-name">{entry.formulaName}</td>
+                      <td className="num text-right">{entry.bills}</td>
                       <td className="num text-right">{fmtWeight(entry.totalKg)}</td>
                     </tr>
                   ))}

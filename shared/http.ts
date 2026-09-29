@@ -71,63 +71,76 @@ export function createRequester(base: string | (() => string)) {
       else signal.addEventListener('abort', onExternalAbort, { once: true });
     }
 
-    let res: Response;
+    // Classify a failure into something an operator can act on. `fetch` only
+    // rejects on a network-level failure, never on an HTTP status.
+    const failure = (err: unknown): ApiError => {
+      if (timedOut) {
+        return new ApiError(`The server did not respond within ${Math.round(timeoutMs / 1000)}s.`, 0);
+      }
+      if (signal?.aborted) {
+        return new ApiError('Request cancelled.', 0);
+      }
+      if (err instanceof ApiError) return err;
+      return new ApiError(describe(0), 0);
+    };
+
     try {
-      res = await fetch(`${resolve()}${path}`, {
+      const res: Response = await fetch(`${resolve()}${path}`, {
         method,
         headers: body ? { 'Content-Type': 'application/json' } : undefined,
         body,
         signal: controller.signal,
       });
+
+      // A proxy, a captive portal or a crashing server can answer with HTML even
+      // for an API path. Parsing that as JSON used to surface as
+      // "Unexpected token '<'" with no hint about the real cause.
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+
+      // The body is read inside the guarded block on purpose. A server that
+      // sends headers and then stalls leaves the connection open with the
+      // promise pending forever if the deadline is released first, which is
+      // exactly the half-open socket this wrapper exists to prevent.
+      if (!contentType.includes('application/json')) {
+        const text = await res.text().catch(() => '');
+        if (res.ok) {
+          throw new ApiError(
+            `The server returned ${contentType || 'an unknown format'} instead of JSON for /${path}. ${describe(res.status)}`.trim(),
+            res.status,
+          );
+        }
+        throw new ApiError(`${describe(res.status)} ${text.slice(0, 120)}`.trim(), res.status);
+      }
+
+      // A 200 with a truncated or empty body is a real failure mode on a
+      // kiosk, so it is reported rather than silently becoming undefined.
+      const raw = await res.text();
+      let data: unknown = {};
+      if (raw.trim()) {
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          throw new ApiError(`The server sent a malformed response for /${path}.`, res.status);
+        }
+      }
+
+      if (!res.ok) {
+        const errorBody = data as ErrorBody;
+        throw new ApiError(
+          errorBody.error || describe(res.status),
+          res.status,
+          Array.isArray(errorBody.formulas) ? errorBody.formulas : undefined,
+        );
+      }
+      return data as T;
     } catch (err) {
-      if (timedOut) {
-        throw new ApiError(`The server did not respond within ${Math.round(timeoutMs / 1000)}s.`, 0);
-      }
-      if (signal?.aborted) {
-        throw new ApiError('Request cancelled.', 0);
-      }
-      // fetch only rejects on a network-level failure, never on HTTP status.
-      throw new ApiError(describe(0), 0);
+      // Anything thrown above that is already an ApiError keeps its status and
+      // message; only a raw network or stream failure needs translating.
+      if (err instanceof ApiError && !timedOut && !signal?.aborted) throw err;
+      throw failure(err);
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', onExternalAbort);
     }
-
-    // A proxy, a captive portal or a crashing server can answer with HTML even
-    // for an API path. Parsing that as JSON used to surface as
-    // "Unexpected token '<'" with no hint about the real cause.
-    const contentType = (res.headers.get('content-type') || '').toLowerCase();
-    if (!contentType.includes('application/json')) {
-      const text = await res.text().catch(() => '');
-      if (res.ok) {
-        throw new ApiError(
-          `The server returned ${contentType || 'an unknown format'} instead of JSON for /${path}. ${describe(res.status)}`.trim(),
-          res.status,
-        );
-      }
-      throw new ApiError(`${describe(res.status)} ${text.slice(0, 120)}`.trim(), res.status);
-    }
-
-    // A 200 with a truncated or empty body is a real failure mode on a kiosk,
-    // so it is reported rather than silently becoming undefined.
-    const raw = await res.text();
-    let data: unknown = {};
-    if (raw.trim()) {
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        throw new ApiError(`The server sent a malformed response for /${path}.`, res.status);
-      }
-    }
-
-    if (!res.ok) {
-      const body = data as ErrorBody;
-      throw new ApiError(
-        body.error || describe(res.status),
-        res.status,
-        Array.isArray(body.formulas) ? body.formulas : undefined,
-      );
-    }
-    return data as T;
   };
 }

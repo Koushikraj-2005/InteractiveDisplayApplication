@@ -8,6 +8,7 @@ import {
   type ReadingVerdict,
 } from './lib/weights.ts';
 import { ReZeroLatch } from '../shared/reZeroLatch.ts';
+import { StabilityLatch } from '../shared/stabilityLatch.ts';
 import { useAutoAdvance } from '../shared/useAutoAdvance.ts';
 import { useWeightSource } from './lib/weightSource.ts';
 import { preloadAll, stopSpeaking } from './lib/tts.ts';
@@ -27,9 +28,27 @@ import {
   needsServerAddress,
   subscribeToServerAddress,
 } from './lib/serverAddress.ts';
-import type { Bill, CartItem, Formula, Item, LangCode } from './lib/types.ts';
+import { guardBackButton } from './lib/backButton.ts';
+import type {
+  Bill,
+  CartItem,
+  CartItemStatus,
+  Formula,
+  Item,
+  LangCode,
+  WeighingLine,
+} from './lib/types.ts';
 import { FontSizeControl } from '../shared/FontSizeControl.tsx';
+import { ScaleSettings, type ScaleLinkState } from '../shared/ScaleSettings.tsx';
 import { roundOffWeight, roundTargetWeight, targetRoundingNote } from '../shared/targetWeight.ts';
+import {
+  clearPendingBill,
+  clearStoredCart,
+  loadCart,
+  loadPendingBill,
+  saveCart,
+  savePendingBill,
+} from '../shared/cartStorage.ts';
 
 type ScreenKey = 'weighing' | 'formulas' | 'history' | 'reports' | 'items';
 type Stage = 'select' | 'weighing' | 'complete';
@@ -42,7 +61,26 @@ const SCREENS: Array<{ key: ScreenKey; label: string }> = [
   { key: 'items', label: 'ITEM MASTER' },
 ];
 
-const uid = () => Math.random().toString(36).slice(2, 9);
+/**
+ * Must satisfy the server's `/^[A-Za-z0-9_-]{8,64}$/` reference check, or the
+ * reference is silently dropped and a retry saves the batch a second time. A
+ * 7-character slice looked fine and defeated the whole de-duplication.
+ * `getRandomValues` is available over plain http; `randomUUID` is not.
+ */
+const uid = () => {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 20);
+};
+
+/**
+ * Highest target the terminal will accept. Without a ceiling one extra digit
+ * typed into the required-weight box creates a line that can never be reached,
+ * and because a line only moves on by itself the only way out was to throw the
+ * whole batch away. A poultry ration line is tens of kilograms; 1000 kg is
+ * already two orders of magnitude past anything real.
+ */
+const MAX_TARGET_KG = 1000;
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -64,6 +102,9 @@ export default function App() {
   const [formulasError, setFormulasError] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
+  // True when a weighing was restored from storage, so the operator is told
+  // rather than silently dropped back into a half-finished bill.
+  const [resumed, setResumed] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [selectedFormulaId, setSelectedFormulaId] = useState<number | null>(null);
   const [reqInput, setReqInput] = useState('');
@@ -82,11 +123,38 @@ export default function App() {
     setServerOriginState(getServerOrigin());
     setShowServer(needsServerAddress());
   }), []);
-  const { mode, setMode, raw, setRaw, getReading, live, device, ports, baudRates, portsLoading, refreshPorts, deviceBusy, deviceError, connect, disconnect } =
+
+  // The Android back button finishes the activity by default. Ask first, but
+  // only while there is measured material or an unsaved bill on the terminal.
+  useEffect(
+    () =>
+      guardBackButton(
+        () => (cart.length > 0 && stage !== 'complete') || (Boolean(billPayload) && !savedBill),
+      ),
+    [cart.length, stage, billPayload, savedBill],
+  );
+  const { getReading, live, device, ports, baudRates, portsLoading, refreshPorts, deviceBusy, deviceError, connect, disconnect } =
     useWeightSource();
   const latch = useMemo(() => new ReZeroLatch(), []);
-  const lastReadingRef = useRef<number | null>(null);
+  const stabilityLatch = useMemo(() => new StabilityLatch(), []);
   const advancedUidRef = useRef<string | null>(null);
+  // Guards against a second POST for the same weighing. The button is disabled
+  // while saving, but a fast double tap, a retried click, or the auto-advance
+  // timer firing in the same tick can all get through before React re-renders.
+  const savingRef = useRef(false);
+
+  // The header trigger stands in for the old SCALE ONLINE / SCALE OFFLINE badge,
+  // so the operator can still see the link state without opening the panel.
+  const scaleLinkState: ScaleLinkState = deviceError
+    ? 'error'
+    : device.connected
+      ? 'online'
+      : 'offline';
+  const scaleLinkLabel = deviceError
+    ? `SCALE ERROR: ${deviceError}`
+    : device.connected
+      ? `SCALE ONLINE (${device.port ?? 'connected'})`
+      : 'SCALE OFFLINE';
 
   async function loadItems(silent = false) {
     if (!silent) setItemsLoading(true);
@@ -114,7 +182,10 @@ export default function App() {
   useEffect(() => {
     loadItems();
     loadFormulas();
-  }, []);
+    // Re-keyed on the address: without this the item master and formulas stay
+    // from the old server after the operator edits the address, so they could
+    // build a cart out of one server's items and post it to another.
+  }, [serverOrigin]);
 
   useEffect(() => {
     if (items.length > 0) preloadAll(items, VOICE_LANGS);
@@ -127,19 +198,104 @@ export default function App() {
     }
   }, [items, selectedItemId]);
 
+  // A weighing in progress survives a reload. The Android build can be killed
+  // by the OS, the operator can swipe the app away, or a refresh can happen at
+  // any point mid-pour; without this the measured weights existed only in React
+  // state and the whole batch was lost.
+  useEffect(() => {
+    const pending = loadPendingBill<WeighingPayload>();
+    const stored = loadCart();
+    if (pending) {
+      setBillPayload(pending);
+      setSavedBill(null);
+      // The bill never reached the server. Show it as a failed save rather than
+      // a clean completion, or the screen renders an empty zero-total table
+      // with no RETRY and the only button available destroys the batch.
+      setBillError('This weighing was not stored before the app closed');
+      setCart(
+        (Array.isArray(pending.lines) ? pending.lines : []).map((line: WeighingLine, index: number) => ({
+          uid: `${pending.ref || 'pending'}-${index}`,
+          id: line.itemId ?? null,
+          slug: '',
+          name: String(line.itemName || 'Item'),
+          names: { en: String(line.itemName || 'Item'), hi: '', bn: '', ta: '' },
+          required: line.requiredWeight,
+          status: 'completed' as CartItemStatus,
+          actual: line.actualWeight ?? null,
+        })),
+      );
+      setStage('complete');
+      return;
+    }
+    if (!stored) return;
+    const restored: CartItem[] = stored.lines.map((line) => {
+      const item = items.find((candidate: Item) => candidate.id === line.id);
+      return {
+        uid: line.uid,
+        id: line.id,
+        slug: item ? item.slug : line.slug,
+        name: item ? item.name : line.name,
+        names: item ? item.names : { en: line.name, hi: '', bn: '', ta: '' },
+        imagePath: item ? item.imagePath ?? null : line.imagePath ?? null,
+        required: roundTargetWeight(line.required),
+        // Completed lines keep their measured weight, and the terminal resumes
+        // at the first line still to do. Restoring them as pending made the
+        // operator re-pour material that had already been recorded.
+        status: line.status,
+        actual: line.actual ?? null,
+        formulaName: line.formulaName ?? stored.formulaName,
+        formulaId: line.formulaId ?? stored.formulaId,
+      };
+    });
+    const firstPending = restored.findIndex((line) => line.status !== 'completed');
+    if (firstPending === -1) {
+      // Every line was already weighed; the bill must have been the thing lost.
+      clearStoredCart();
+      return;
+    }
+    setCart(restored);
+    setActiveIndex(firstPending);
+    setResumed(true);
+    latch.reset();
+    stabilityLatch.reset();
+    setStage('weighing');
+    // Reached once on mount: the item master is still loading, and a second
+    // pass would fight an operator who may already have moved on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const selectedItem = items.find((item: Item) => item.id === selectedItemId) ?? null;
 
   const activeItem = stage !== 'select' ? cart[activeIndex] : null;
   const status: ReadingVerdict = activeItem
     ? evaluateReading(activeItem.required, getReading())
     : NEUTRAL;
+  const currentReading = getReading();
+  // Feed the latch on every settled reading, so a line that has been seen to
+  // settle is remembered even if the scale's own flag flickers afterwards.
+  useEffect(() => {
+    // A reading that has moved off the accepted weight means the operator has
+    // taken the previous item off, so that weight can no longer satisfy the
+    // next line. Without this the guard also blocked a genuine second item
+    // weighing the same as the first, which formulas do ask for.
+    latch.observe(currentReading);
+    stabilityLatch.observe(currentReading, live?.stable === true, status.correct);
+  }, [currentReading, live?.stable, status.correct]);
   // A live scale must be settled before a line counts, otherwise a reading
-  // that merely swept past the target mid-placement gets accepted.
-  const liveSettled = mode !== 'weighing' || (Boolean(device.connected) && live?.stable === true);
-  const readingStale = latch.isStale(getReading());
+  // that merely swept past the target mid-placement gets accepted. The scale
+  // only has to be seen to settle once, though: requiring its stable flag to
+  // hold for the whole auto-advance countdown meant an ordinary flicker could
+  // restart the countdown and leave a correct line stuck on TARGET REACHED.
+  const liveSettled = Boolean(device.connected) && stabilityLatch.hasSettled(currentReading);
+  const readingStale = latch.isStale(currentReading);
   const nextEnabled = status.correct && liveSettled && !readingStale;
   // A correct weight advances on its own, so the operator never has to reach
-  // for the button mid-pour.
+  // for the button mid-pour. The one place a button is still needed is a line
+  // that is at the target but whose scale never reports it settled: a load cell
+  // that dithers a gram or two at rest will never produce three byte-identical
+  // frames, which would otherwise leave the line wedged with no way forward
+  // short of throwing the whole batch away.
+  const forceNextEnabled = status.correct && !readingStale && !nextEnabled;
   // Tell the operator the moment a typed target will be snapped, rather than
   // letting the rounded figure appear only on the bill.
   const reqRoundingNote = targetRoundingNote(parseWeight(reqInput) ?? NaN);
@@ -150,11 +306,15 @@ export default function App() {
     onAdvance: handleNext,
   });
 
-  // Remember the last seen reading so a weighing session can be resumed or
-  // audited from the live value after re-renders.
+  // The pending bill is kept in storage so a failed save, or a reload while the
+  // completion screen is up, can still be retried instead of losing the batch.
   useEffect(() => {
-    lastReadingRef.current = getReading();
-  });
+    if (stage === 'complete' && billPayload && !savedBill) savePendingBill(billPayload);
+  }, [stage, billPayload, savedBill]);
+
+  useEffect(() => {
+    if (savedBill) clearPendingBill();
+  }, [savedBill]);
 
   function selectItem(id: number) {
     setSelectedItemId(id);
@@ -180,6 +340,7 @@ export default function App() {
           slug: item ? item.slug : '',
           name: item ? item.name : line.itemName,
           names: item ? item.names : { en: line.itemName, hi: '', bn: '', ta: '' },
+          imagePath: item ? item.imagePath ?? null : null,
           required: roundTargetWeight(line.requiredWeight),
           status: 'pending',
           formulaId: formula.id,
@@ -189,6 +350,9 @@ export default function App() {
     if (lines.length === 0) return;
     setCart(lines);
     setSelectedFormulaId(null);
+    setResumed(false);
+    clearStoredCart();
+    saveCart(lines, formula.id);
     stopSpeaking();
   }
 
@@ -207,47 +371,91 @@ export default function App() {
     // Snapped to a weight the scale can actually show, so the line is
     // reachable and still moves on by itself when the target lands.
     const target = roundTargetWeight(required);
+    // The target is floored to whole kilograms, so anything under a kilogram
+    // silently becomes a 1 kg line and anything absurd stays absurd. Both make
+    // a line the operator can never complete.
+    if (target < 1) {
+      setReqError('A line must weigh at least 1 kg. Enter 1.000 or more.');
+      return;
+    }
+    if (target > MAX_TARGET_KG) {
+      setReqError(`A line cannot be more than ${MAX_TARGET_KG} kg. Enter a weight up to ${MAX_TARGET_KG} kg.`);
+      return;
+    }
     if (!selectedItem) return;
-    setCart((prev) => [
-      ...prev,
+    // Build the array once and persist that same array. Persisting `cart`
+    // instead would store the list as it was *before* this line, so a reload
+    // between here and START WEIGHING would resume one item short and the
+    // operator would re-pour from a silently incomplete list.
+    const next: CartItem[] = [
+      ...cart,
       {
         uid: uid(),
         id: selectedItem.id,
         slug: selectedItem.slug,
         name: selectedItem.name,
         names: selectedItem.names,
+        imagePath: selectedItem.imagePath ?? null,
         required: target,
         status: 'pending',
       },
-    ]);
+    ];
+    setCart(next);
     setReqInput('');
     setReqError('');
+    saveCart(next, null);
   }
 
   function removeFromCart(id: string) {
-    setCart((prev) => prev.filter((item) => item.uid !== id));
+    setCart((prev) => {
+      const next = prev.filter((item) => item.uid !== id);
+      saveCart(next, null);
+      return next;
+    });
   }
 
   function beginWeighing() {
     if (cart.length === 0) return;
     setActiveIndex(0);
-    setRaw('');
+    setResumed(false);
+    // The uid claim is per attempt. Left set from a previous run it would make
+    // handleNext drop the very first line of the next one, and the line would
+    // sit on TARGET REACHED forever with no way to move it.
+    advancedUidRef.current = null;
     latch.reset();
-    lastReadingRef.current = null;
+    stabilityLatch.reset();
+    saveCart(cart, null);
     setStage('weighing');
   }
 
-  function handleNext() {
+  function handleNext(force = false) {
     if (!activeItem) return;
     // A tap on NEXT can land in the same moment the auto-advance timer fires.
     // Both would advance the same line, so the second one is dropped.
     if (advancedUidRef.current === activeItem.uid) return;
-    advancedUidRef.current = activeItem.uid;
     const current = getReading();
-    if (current == null || round3(current - activeItem.required) !== 0) return;
+    // The same verdict the operator is looking at. This used to compare the raw
+    // reading against the target instead, which is stricter than the screen:
+    // a target of 51 kg is accepted on screen from 51.000 up to 51.999, because
+    // the reading is rounded down to whole kilograms the way the target is, but
+    // the raw comparison only matched 51.000 exactly. A scale sitting anywhere
+    // in that kilogram therefore showed WEIGHT ACCEPTED, armed the auto-advance
+    // countdown, and then had the advance silently dropped here, so the line
+    // never moved on. One source of truth means the two cannot disagree.
+    if (current == null || !evaluateReading(activeItem.required, current).correct) return;
     // Re-check the latch here as well as in the button, so a stale reading
-    // cannot slip through via the Enter key or a stale render.
-    if (latch.isStale(current) || (mode === 'weighing' && live?.stable !== true)) return;
+    // cannot slip through via a stale render. The forced path is the only way
+    // past a scale that never reports its reading as settled, and the operator
+    // is still only ever allowed to advance a line the scale actually reads
+    // as being at target.
+    if (latch.isStale(current)) return;
+    if (!force && !stabilityLatch.hasSettled(current)) return;
+    // Only now is the line really being advanced, so this is the point at which
+    // to claim it. Claiming it before the guards passed meant a tap that landed
+    // while the scale had not settled burned the line's single attempt and it
+    // could never advance afterwards, because every later call saw the uid
+    // already taken and returned.
+    advancedUidRef.current = activeItem.uid;
     // Record what the scale actually read, so a bill shows target vs measured.
     const actual = round3(current);
     // Built from the current cart rather than via the updater, because the last
@@ -261,8 +469,9 @@ export default function App() {
     // line needs a genuinely different reading.
     latch.latch(actual);
     if (activeIndex < cart.length - 1) {
+      stabilityLatch.reset();
       setActiveIndex(activeIndex + 1);
-      setRaw('');
+      saveCart(completed, null);
     } else {
       completeWeighing(completed);
     }
@@ -283,20 +492,42 @@ export default function App() {
         .filter((name): name is string => Boolean(name)),
     );
     const formulaName = formulaNames.size === 1 ? [...formulaNames][0] : null;
-    const payload: WeighingPayload = { weighedAt: localIsoNow(), lines, formulaName };
+    const payload: WeighingPayload = { weighedAt: localIsoNow(), lines, formulaName, ref: uid() };
     setBillPayload(payload);
     setStage('complete');
     setSavedBill(null);
     setBillError('');
+    postBill(payload);
+  }
+
+  /**
+   * Send the finished bill to the server.
+   *
+   * The payload carries a client generated reference and the server treats a
+   * repeat of that reference as the same bill, so pressing RETRY SAVE after a
+   * timeout that the server had already committed cannot double count the
+   * batch. The synchronous ref guard drops a second POST that somehow reaches
+   * here in the same tick.
+   */
+  function postBill(payload: WeighingPayload) {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setBillSaving(true);
     api
       .saveWeighing(payload)
       .then((bill: Bill) => {
         setSavedBill(bill);
-        setBillSaving(false);
+        // The bill is on the server now, so the cart has nothing left to
+        // represent. Leaving it in storage meant a reload after this screen
+        // restored the whole formula and the operator weighed it a second time.
+        clearStoredCart();
+        setBillError('');
       })
       .catch((err) => {
         setBillError(errText(err));
+      })
+      .finally(() => {
+        savingRef.current = false;
         setBillSaving(false);
       });
   }
@@ -305,44 +536,65 @@ export default function App() {
     if (!billPayload) return;
     setSavedBill(null);
     setBillError('');
-    setBillSaving(true);
-    api
-      .saveWeighing(billPayload)
-      .then((bill: Bill) => {
-        setSavedBill(bill);
-        setBillSaving(false);
-      })
-      .catch((err) => {
-        setBillError(errText(err));
-        setBillSaving(false);
-      });
+    postBill(billPayload);
   }
 
   function cancelWeighing() {
+    // Every completed line here is material that was physically poured and
+    // measured. A gloved mis-tap must not throw away an hour of it without
+    // asking, so confirm before anything is dropped.
+    if (cart.length > 0) {
+      const completed = cart.filter((line) => line.status === 'completed').length;
+      const discard = window.confirm(
+        completed > 0
+          ? `Cancel this weighing? ${completed} completed line${completed === 1 ? '' : 's'} will be discarded and nothing will be recorded.`
+          : 'Cancel this weighing and clear the list?',
+      );
+      if (!discard) return;
+    }
     stopSpeaking();
+    // The cart is dropped rather than kept. Kept, a restart re-used the same
+    // line uids, and lines the operator had already weighed before cancelling
+    // were re-posted into the next bill.
+    setCart([]);
     setActiveIndex(0);
-    setRaw('');
+    advancedUidRef.current = null;
     latch.reset();
-    lastReadingRef.current = null;
+    stabilityLatch.reset();
     setSavedBill(null);
     setBillError('');
     setBillPayload(null);
+    setResumed(false);
+    clearStoredCart();
+    clearPendingBill();
     setStage('select');
   }
 
   function startNewWeighing() {
+    // A bill the server never accepted is the only copy of a real, physically
+    // poured batch. One habitual tap on the big primary button must not be
+    // enough to throw it away without asking.
+    if (billPayload && !savedBill) {
+      const discard = window.confirm(
+        'This weighing was never saved to the records. Starting a new one now discards it for good. Discard it?',
+      );
+      if (!discard) return;
+    }
     stopSpeaking();
     setCart([]);
     setActiveIndex(0);
-    setRaw('');
+    advancedUidRef.current = null;
     latch.reset();
-    lastReadingRef.current = null;
+    stabilityLatch.reset();
     setSelectedItemId(null);
     setReqInput('');
     setReqError('');
     setSavedBill(null);
     setBillError('');
     setBillPayload(null);
+    setResumed(false);
+    clearStoredCart();
+    clearPendingBill();
     setStage('select');
   }
 
@@ -363,10 +615,16 @@ export default function App() {
           <div className="brand">
             <span className="brand-glyph">⚖</span>
             <span className="brand-text">
-              <span className="brand-owner">REMAN INFRASTRUCTURE (P) LIMITED</span>
               <span className="brand-name">NAVEEN POULTRY FARMS</span>
             </span>
           </div>
+          <img
+            className="app-logo"
+            src={`${import.meta.env.BASE_URL}logo.jpeg`}
+            alt=""
+            width={569}
+            height={658}
+          />
         </header>
         <main>
           <ServerScreen
@@ -381,11 +639,10 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="app-header">
+      <header className="app-header header-weighing">
         <div className="brand">
           <span className="brand-glyph">⚖</span>
           <span className="brand-text">
-            <span className="brand-owner">REMAN INFRASTRUCTURE (P) LIMITED</span>
             <span className="brand-name">NAVEEN POULTRY FARMS</span>
           </span>
         </div>
@@ -401,21 +658,27 @@ export default function App() {
               {serverOrigin.replace(/^https?:\/\//, '')}
             </button>
           )}
-          <ScaleConnection
-            mode={mode}
-            setMode={setMode}
-            device={device}
-            ports={ports}
-            baudRates={baudRates}
-            portsLoading={portsLoading}
-            refreshPorts={refreshPorts}
-            deviceBusy={deviceBusy}
-            deviceError={deviceError}
-            connect={connect}
-            disconnect={disconnect}
-            locked={stage === 'weighing'}
-          />
+          <ScaleSettings state={scaleLinkState} label={scaleLinkLabel}>
+            <ScaleConnection
+              device={device}
+              ports={ports}
+              baudRates={baudRates}
+              portsLoading={portsLoading}
+              refreshPorts={refreshPorts}
+              deviceBusy={deviceBusy}
+              deviceError={deviceError}
+              connect={connect}
+              disconnect={disconnect}
+            />
+          </ScaleSettings>
         </div>
+        <img
+          className="app-logo"
+          src={`${import.meta.env.BASE_URL}logo.jpeg`}
+          alt=""
+          width={569}
+          height={658}
+        />
       </header>
 
       <nav className="nav-tabs">
@@ -491,6 +754,20 @@ export default function App() {
               />
             )}
 
+            {resumed && stage === 'weighing' && (
+              <div className="error-banner resume-banner">
+                This weighing was restored after the app reloaded. Lines already
+                weighed are marked complete; check the queue before continuing.{' '}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={cancelWeighing}
+                >
+                  DISCARD
+                </button>
+              </div>
+            )}
+
             {stage === 'weighing' && (
               <WeighingTerminal
                 cart={cart}
@@ -498,20 +775,19 @@ export default function App() {
                 activeItem={activeItem}
                 status={status}
                 autoAdvanceMs={autoAdvanceMs}
-                reading={mode === 'weighing' ? (live?.weight != null ? String(live.weight) : '') : raw}
+                reading={live?.weight ?? null}
                 nextEnabled={nextEnabled}
+                forceNextEnabled={forceNextEnabled}
                 nextBlockedReason={
                   readingStale
                     ? latch.staleReason()
-                    : mode === 'weighing' && status.correct && !liveSettled
-                      ? 'Waiting for the scale reading to settle…'
+                    : status.correct && !liveSettled
+                      ? 'The scale has not reported this reading as settled yet. It may never do so — use NEXT LINE to move on.'
                       : null
                 }
                 voiceLang={voiceLang}
-                mode={mode}
                 device={device}
                 live={live}
-                onReading={setRaw}
                 onNext={handleNext}
                 onCancel={cancelWeighing}
               />

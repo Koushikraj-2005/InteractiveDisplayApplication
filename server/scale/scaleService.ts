@@ -24,6 +24,15 @@ const STABLE_SAMPLES = 3;
 const MAX_BUFFER_LENGTH = 512;
 
 /**
+ * How long a frame stays believable after it arrives. The poll cadence is
+ * 100ms, so a second without a single reply means the machine has stopped
+ * talking to us. Anything the client reads after that is a leftover, and a
+ * leftover is exactly the value that would let an empty pan be accepted as a
+ * full one.
+ */
+const READING_MAX_AGE_MS = 2000;
+
+/**
  * This scale is a request/response device, not a streaming one: it stays
  * completely silent until something is written to it, then answers with
  * exactly one frame. Listening passively therefore only ever catches the
@@ -258,7 +267,16 @@ export class ScaleService extends EventEmitter {
   }
 
   getReading(): ScaleReading | null {
-    return this.reading;
+    // A reading only describes the pan while the machine keeps sending. A
+    // scale switched into menu mode, unplugged at the far end, or with a
+    // wedged USB-serial link leaves the port open and the bytes flowing
+    // outbound while nothing ever comes back, so the status stays 'connected'
+    // and the last frame would otherwise be served as a live weight forever.
+    const reading = this.reading;
+    if (!reading) return null;
+    const age = Date.now() - Date.parse(reading.receivedAt);
+    if (!Number.isFinite(age) || age > READING_MAX_AGE_MS) return null;
+    return reading;
   }
 
   isDeviceConnected(): boolean {
@@ -281,7 +299,19 @@ export class ScaleService extends EventEmitter {
     if (!this.started) return;
     this.closePort();
     this.buffer = '';
-    this.setStatus('connecting', `Opening ${this.portPath} at ${this.baudRate} baud…`);
+    // Snapshotted before the awaits below. Reading this.portPath afterwards
+    // meant two concurrent connects could both open a handle: the first to
+    // resume would find the second's path had overwritten it, open a second
+    // port and leave the other handle orphaned with its listeners still
+    // attached, so readings kept arriving from a port nothing could close.
+    const path = this.portPath;
+    const baud = this.baudRate;
+    // The last reading and its sample window belong to the old port. Kept, a
+    // scale that reconnected to the same physical load would report the very
+    // first frame as stable, having never re-settled.
+    this.reading = null;
+    this.recentSamples = [];
+    this.setStatus('connecting', `Opening ${path} at ${baud} baud…`);
 
     const SerialPort = await loadSerialPort();
     if (!SerialPort) {
@@ -294,8 +324,8 @@ export class ScaleService extends EventEmitter {
 
     try {
       const port = new SerialPort({
-        path: this.portPath,
-        baudRate: this.baudRate,
+        path,
+        baudRate: baud,
         autoOpen: false,
       });
       this.port = port;
@@ -358,7 +388,17 @@ export class ScaleService extends EventEmitter {
     const code = (err as NodeJS.ErrnoException).code;
     const details = code ? `${err.message} (${code})` : err.message || String(err);
     this.closePort();
-    this.setStatus('failed', `Scale not available: ${details}`);
+    // Symmetric with onPortClosed, and deliberately so. On Linux a USB
+    // disconnect usually surfaces as a read error before the close event, and
+    // whichever fired first used to decide whether the sample window was
+    // wiped. When the error path left it intact, the first frame after a
+    // reconnect could be reported as already stable.
+    this.resetStream();
+    // The raw driver message names filesystem paths and device internals, and
+    // it reaches every client on the LAN. The operator only needs to know the
+    // scale is not answering; the detail belongs in the server log.
+    console.error(`Scale port error: ${details}`);
+    this.setStatus('failed', 'Scale not available. Check the cable and rescan.');
     this.scheduleReconnect();
   }
 

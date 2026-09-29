@@ -169,6 +169,17 @@ export function ttsBase(): string {
 }
 
 /**
+ * Full URL for a stored item photo. The items table only holds a path such as
+ * '/item-images/maize-1a2b3c.jpg', so this turns it into something an <img> can
+ * load. Same rules as the API: a same-origin path in the browser, and the
+ * configured server in the Android build.
+ */
+export function itemImageUrl(storedPath: string | null | undefined): string | null {
+  if (!storedPath) return null;
+  return `${serverBase()}${storedPath.startsWith('/') ? '' : '/'}${storedPath}`;
+}
+
+/**
  * True when the app still needs a server address before it can do anything.
  * In the Android build that is exactly "nothing stored yet".
  */

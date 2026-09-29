@@ -16,6 +16,8 @@ export interface Item {
   code: string;
   name: string;
   names: LocalizedNames;
+  /** Stored photo path, or null when the item has no picture. */
+  imagePath?: string | null;
   createdAt: string;
 }
 
@@ -104,6 +106,8 @@ export interface CartItem {
   slug: string;
   name: string;
   names: LocalizedNames;
+  /** Copied from the item when the line was queued, null when it has no photo. */
+  imagePath?: string | null;
   required: number;
   status: CartItemStatus;
   /** Filled in once the operator accepts this line. */
