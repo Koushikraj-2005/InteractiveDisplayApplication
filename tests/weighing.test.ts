@@ -27,6 +27,27 @@ test('roundOffWeight floors to the whole kilogram below', () => {
   assert.equal(roundOffWeight(0), 0);
 });
 
+test('roundOffWeight rounds a negative reading toward zero, never away', () => {
+  // An empty pan can read below zero on a real machine. Math.floor sends -0.5
+  // to -1, which would inflate the gap between what the operator poured and
+  // what the bill records, and grows it on every line of the batch.
+  // -0 normalises to 0 rather than serialising as "-0" on a bill.
+  for (const value of [-0.5, -0.4, -0.001]) {
+    assert.equal(roundOffWeight(value), 0, `${value} is under a kilo, so it is zero`);
+    assert.ok(Object.is(roundOffWeight(value), 0), `${value} must not stay -0`);
+  }
+  assert.equal(roundOffWeight(-1.2), -1);
+  assert.equal(roundOffWeight(-2.5), -2);
+  assert.equal(roundOffWeight(-15), -15);
+  // Never rounds a negative away from zero: -1.2 must not become -2.
+  for (const value of [-0.5, -1.2, -2.5, -9.9, -0.001, -1000.5]) {
+    assert.ok(
+      roundOffWeight(value) >= value,
+      `roundOffWeight(${value}) rounded away from zero to ${roundOffWeight(value)}`,
+    );
+  }
+});
+
 test('roundOffWeight absorbs floating point noise instead of losing a kilo', () => {
   // 0.1 + 0.2 style error must not floor 50.9999999999 down to 50.
   assert.equal(roundOffWeight(50.9999999999), 51);

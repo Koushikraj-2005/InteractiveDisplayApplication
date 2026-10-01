@@ -14,7 +14,109 @@ import assert from 'node:assert/strict';
 
 import { TareBaseline } from '../shared/tareBaseline.ts';
 import { StabilityLatch } from '../shared/stabilityLatch.ts';
+import { roundOffWeight } from '../shared/targetWeight.ts';
 import { evaluateReading } from '../src/lib/weights.ts';
+
+test('a scale reading below zero keeps that offset in the zero point', () => {
+  // The real machine: an empty pan sits at -0.500 kg. Folding the sign away
+  // would put 50 kg of feed on the pan at a net of 49.5, the operator would
+  // keep pouring until the display read 50, and every line would hand over
+  // half a kilo the shop never got paid for.
+  const tare = new TareBaseline();
+  tare.zeroAt(-0.5);
+  assert.equal(tare.baseValue(), -0.5);
+  assert.equal(tare.net(-0.5), 0, 'an empty pan weighs nothing');
+  assert.equal(tare.net(49.5), 50, '50 kg of feed on a pan 0.5 below zero is 50 kg');
+  assert.equal(evaluateReading(50, tare.net(49.5)).correct, true);
+});
+
+test('a whole batch on a scale that starts negative records every line in full', () => {
+  const tare = new TareBaseline();
+  tare.zeroAt(-0.75);
+  const targets = [100, 50, 200];
+  let accumulated = -0.75;
+  const recorded: number[] = [];
+  for (const target of targets) {
+    // The operator pours until the terminal reads the target, so the raw reading
+    // sits a fixed 0.75 below the material actually on the pan, every line.
+    accumulated += target;
+    const net = tare.net(accumulated) as number;
+    assert.equal(net, target, 'the offset must not creep into the recorded weight');
+    assert.equal(roundOffWeight(net), target);
+    assert.equal(evaluateReading(target, net).correct, true);
+    recorded.push(net);
+    tare.carry(accumulated);
+  }
+  assert.deepEqual(recorded, targets, 'each line records its own weight in full');
+  assert.equal(tare.baseValue(), 349.25, 'the pan carries the whole batch less the offset');
+});
+
+test('an offset scale carries the offset forward line by line', () => {
+  const tare = new TareBaseline();
+  tare.zeroAt(-1.25);
+  tare.carry(48.75); // 50 kg accepted
+  assert.equal(tare.net(48.75), 0, 'the accepted weight is now the zero');
+  assert.equal(tare.net(73.75), 25, '25 kg on top still reads 25, not 23.75');
+});
+
+test('a negative zero point is not mistaken for material coming off', () => {
+  // The machine lives below zero and drifts where it lives. Reporting LOAD
+  // REMOVED for that would stop the operator on every single line.
+  const tare = new TareBaseline();
+  tare.zeroAt(-0.6);
+  assert.equal(tare.underBase(-0.6), false);
+  assert.equal(tare.underBase(-0.75), false, '150 g of drift is not a lost bucket');
+  assert.equal(tare.underBase(-1.2), true, '600 g below the zero point is real');
+});
+
+test('the zero point is not claimed until the scale has said something', () => {
+  // START WEIGHING can run before the serial port finishes opening. Assuming an
+  // empty pan reads 0 would quietly assume the batch does not exist on a
+  // machine that never reads 0.
+  const tare = new TareBaseline();
+  tare.zeroAt(null);
+  assert.equal(tare.isEstablished(), false);
+  assert.equal(tare.baseValue(), 0, 'still a placeholder, not a measurement');
+});
+
+test('the first empty-pan reading becomes the zero point', () => {
+  const tare = new TareBaseline();
+  tare.zeroAt(null);
+  assert.equal(tare.adoptEmptyPan(-0.5), true, 'a negative first reading is adopted');
+  assert.equal(tare.isEstablished(), true);
+  assert.equal(tare.baseValue(), -0.5);
+  assert.equal(tare.net(49.5), 50);
+});
+
+test('a first reading that is already positive is never zeroed to', () => {
+  // The port opened late and the operator had already poured. Zeroing to that
+  // reading would throw away the material already weighed.
+  const tare = new TareBaseline();
+  tare.zeroAt(null);
+  assert.equal(tare.adoptEmptyPan(30), false);
+  assert.equal(tare.isEstablished(), false);
+  assert.equal(tare.net(30), 30, 'the 30 kg already poured is still counted');
+});
+
+test('an established zero point is not overwritten by a later empty pan', () => {
+  const tare = new TareBaseline();
+  tare.zeroAt(-0.5);
+  assert.equal(tare.adoptEmptyPan(-0.9), false, 'the offset was taken once, at the start');
+  assert.equal(tare.baseValue(), -0.5);
+});
+
+test('adopting an empty pan needs a reading to adopt', () => {
+  const tare = new TareBaseline();
+  tare.zeroAt(null);
+  assert.equal(tare.adoptEmptyPan(null), false);
+  assert.equal(tare.isEstablished(), false);
+});
+
+test('an unestablished zero point never claims a load came off', () => {
+  const tare = new TareBaseline();
+  tare.zeroAt(null);
+  assert.equal(tare.underBase(-5), false, 'there is no zero to have fallen below');
+});
 
 test('the pan as found is the zero point for the first line', () => {
   // A scale that never sits exactly at 0.000 kg must not turn line 1 into a
@@ -89,15 +191,17 @@ test('the difference is never negative, and a dropped load is flagged', () => {
 });
 
 test('a reading at the zero point is not treated as a removal', () => {
-  // Tolerance is tight because the flag only has to survive a little noise; the
-  // clamping that actually protects the bill happens in net() regardless.
+  // The drop tolerance is generous, because the flag only guards the operator
+  // from losing material: net() clamps at zero regardless, so a reading inside
+  // the band still cannot record weight that is not on the pan.
   const tare = new TareBaseline();
   tare.zeroAt(0);
   tare.carry(51.2);
   assert.equal(tare.underBase(51.2), false);
-  assert.equal(tare.underBase(51.18), false, 'within epsilon is still the same load');
-  assert.equal(tare.underBase(51.0), true, '50 g below the zero point is flagged');
-  assert.equal(tare.net(51.0), 0, 'and the net weight cannot go negative');
+  assert.equal(tare.underBase(51.18), false, 'a couple of grams is not a lost bucket');
+  assert.equal(tare.underBase(51.0), false, '200 g of drift is still the same load');
+  assert.equal(tare.underBase(50.4), true, '800 g below the zero point is real');
+  assert.equal(tare.net(51.0), 0, 'and the net weight is clamped, never negative');
 });
 
 test('an outlying low frame never moves the zero point', () => {

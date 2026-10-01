@@ -39,8 +39,13 @@ export interface WeighingTerminalProps {
   reading: number | null;
   /** What the scale itself is reading, i.e. the net weight plus the zero point. */
   accumulatedReading?: number | null;
-  /** The weight already on the pan, treated as zero for this line. */
+  /**
+   * The weight already on the pan, treated as zero for this line. Negative on a
+   * scale whose empty pan reads below zero.
+   */
   zeroAt?: number;
+  /** False while the scale has not yet said what an empty pan reads. */
+  zeroEstablished?: boolean;
   /** True when the reading has fallen below the zero point, i.e. material came off. */
   loadRemoved?: boolean;
   nextEnabled: boolean;
@@ -75,6 +80,7 @@ export function WeighingTerminal({
   reading,
   accumulatedReading = null,
   zeroAt = 0,
+  zeroEstablished = true,
   loadRemoved = false,
   nextEnabled,
   forceNextEnabled = false,
@@ -285,13 +291,23 @@ export function WeighingTerminal({
 
           <div className="metric">
             <div className="metric-label">
-              {zeroAt > 0 ? 'Already On The Scale (zero point)' : 'Zero Point'}
-            </div>
-            <div className="metric-value">{fmtWeight(zeroAt)}</div>
-            <div className="metric-hint">
               {zeroAt > 0
-                ? 'Finished items are left on the pan, so this is subtracted for you.'
-                : 'The scale was zeroed when weighing started. Clear the pan before the first item.'}
+                ? 'Already On The Scale (zero point)'
+                : zeroAt < 0
+                  ? 'Scale Reads Low By (zero point)'
+                  : 'Zero Point'}
+            </div>
+            <div className="metric-value">
+              {zeroEstablished ? fmtWeight(zeroAt) : 'not set yet'}
+            </div>
+            <div className="metric-hint">
+              {zeroEstablished
+                ? zeroAt < 0
+                  ? 'This scale reads below zero with an empty pan. It is added back to every weight, so your figures are correct.'
+                  : zeroAt > 0
+                    ? 'Finished items are left on the pan, so this is subtracted for you.'
+                    : 'The scale was zeroed when weighing started. Clear the pan before the first item.'
+                : 'Waiting for the scale to report. The pan is treated as zero until it does.'}
               {onZero && (
                 <button
                   type="button"

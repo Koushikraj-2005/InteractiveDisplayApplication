@@ -43,7 +43,15 @@ export function roundOffWeight(kg: number): number {
   // which kills the dashboard permanently from a single row.
   const scaled = Math.round(kg * 1000);
   if (!Number.isFinite(scaled)) return 0;
-  return Math.floor(scaled / 1000);
+  // Floor, but toward zero on the way down. A scale can sit below zero with an
+  // empty pan, and Math.floor sends -0.5 to -1: the offset would double on
+  // every line, growing the gap between what the operator poured and what the
+  // bill records. Zero is not a weight and neither is anything under it, so a
+  // negative figure rounds to zero rather than away from the operator.
+  // + 0 so a value that rounds to negative zero comes back as 0 and cannot
+  // serialise as "-0" on a bill or a report.
+  const whole = scaled / 1000;
+  return (whole < 0 ? Math.ceil(whole) : Math.floor(whole)) + 0;
 }
 
 /**

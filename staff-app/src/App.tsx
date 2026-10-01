@@ -319,6 +319,13 @@ export default function StaffApp() {
   // so this reading is the total of every item weighed so far. Each line is
   // judged on what has been added since it started, which is the reading minus
   // the zero point captured then.
+  // A scale that sits below zero with an empty pan says so in its very first
+  // reading, which can land after START WEIGHING if the port was still opening.
+  // Taking that as the zero point is what keeps a line from recording less than
+  // the operator actually poured. Done during render rather than in the effect
+  // below, so the next read already sees the corrected zero instead of one
+  // render where the terminal and the verdict disagree.
+  tare.adoptEmptyPan(accumulated);
   const netWeight = tare.net(accumulated);
   const loadRemoved = tare.underBase(accumulated);
   const status: ReadingVerdict = activeItem
@@ -328,7 +335,7 @@ export default function StaffApp() {
   // settle is remembered even if the scale's own flag flickers afterwards.
   useEffect(() => {
     // Judged on the net weight, so stability has to be seen on the same figure
-    // the verdict was given on. Otherwise a reading the scale reports as settled
+    // the verdict was given on. Otherwise a reading the scale reports as stable
     // while the net weight is still moving would arm the line early.
     stabilityLatch.observe(netWeight, live?.stable === true, status.correct);
   }, [netWeight, live?.stable, status.correct]);
@@ -612,6 +619,7 @@ export default function StaffApp() {
             reading={netWeight}
             accumulatedReading={accumulated}
             zeroAt={tare.baseValue()}
+            zeroEstablished={tare.isEstablished()}
             loadRemoved={loadRemoved}
             nextEnabled={nextEnabled}
             forceNextEnabled={forceNextEnabled}
