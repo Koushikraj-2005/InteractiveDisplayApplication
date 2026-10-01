@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { db, initDb, queryAll, queryOne, run } from './db.ts';
 import {
   createScaleHttpHandlers,
-  listSerialPorts,
   ScaleService,
   SUPPORTED_BAUD_RATES,
 } from './scale/index.ts';
@@ -386,11 +385,10 @@ const scale = new ScaleService();
 const scaleHandlers = createScaleHttpHandlers(scale);
 if (scaleEnabled) scale.start();
 
-app.get('/api/scale/ports', async (_req, res) => {
-  const ports = await listSerialPorts();
+app.get('/api/scale/ports', (_req, res) => {
   res.json({
     enabled: scaleEnabled,
-    ports,
+    port: scale.getStatus().port,
     baudRates: SUPPORTED_BAUD_RATES,
     current: scale.getStatus(),
   });

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { DEFAULT_SCALE_PORT } from '../../../shared/scale.ts';
 import type {
   ScaleReading,
   ScaleStatus,
   ScaleStatusResponse,
-  SerialPortInfo,
 } from '../../../shared/scale.ts';
 import { API_BASE, api } from '../api.ts';
 
@@ -71,9 +71,8 @@ export function isReadingStale(reading: ScaleReading | null, now = Date.now()): 
 export function useWeightSource() {
   const [live, setLive] = useState<ScaleReading | null>(null);
   const [device, setDevice] = useState<DeviceState>(IDLE_DEVICE);
-  const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [baudRates, setBaudRates] = useState<number[]>([9600]);
-  const [portsLoading, setPortsLoading] = useState(false);
+  const [port, setPort] = useState<string>(DEFAULT_SCALE_PORT);
   const [deviceBusy, setDeviceBusy] = useState(false);
   const [deviceError, setDeviceError] = useState('');
 
@@ -85,11 +84,13 @@ export function useWeightSource() {
   // an orphaned serial handle on the server, so the second is dropped.
   const deviceBusyRef = useRef(false);
 
-  const refreshPorts = useCallback(async () => {
-    setPortsLoading(true);
+  // Reads which port the server is using and which baud rates it accepts. The
+  // port is no longer chosen here, only reported, so there is nothing to
+  // enumerate and nothing to rescan.
+  const refreshScaleInfo = useCallback(async () => {
     try {
       const data = await api.getScalePorts();
-      setPorts(Array.isArray(data?.ports) ? data.ports : []);
+      if (typeof data?.port === 'string' && data.port.trim()) setPort(data.port);
       if (Array.isArray(data?.baudRates) && data.baudRates.length) {
         setBaudRates(data.baudRates);
       }
@@ -99,8 +100,6 @@ export function useWeightSource() {
       setDeviceError('');
     } catch (err) {
       setDeviceError(errText(err));
-    } finally {
-      setPortsLoading(false);
     }
   }, []);
 
@@ -206,7 +205,7 @@ export function useWeightSource() {
     return () => window.clearInterval(timer);
   }, []);
 
-  // Discover the attached adapters on mount.
+  // Read the scale status and the server's port on mount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -217,8 +216,8 @@ export function useWeightSource() {
         if (!cancelled) setDeviceError(errText(err));
       }
     })();
-    refreshPorts();
-  }, [refreshPorts]);
+    refreshScaleInfo();
+  }, [refreshScaleInfo]);
 
   const getReading = useCallback((): number | null => {
     const current = liveRef.current;
@@ -229,10 +228,8 @@ export function useWeightSource() {
     live,
     device,
     getReading,
-    ports,
+    port,
     baudRates,
-    portsLoading,
-    refreshPorts,
     deviceBusy,
     deviceError,
     connect,

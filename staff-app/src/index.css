@@ -2466,13 +2466,13 @@ input {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  /* Absorbs the squeeze so the port list truncates instead of forcing the
+  /* Absorbs the squeeze so the port label truncates instead of forcing the
      toggle onto a second row. */
   min-width: 0;
   flex: 0 1 auto;
 }
 
-.scale-port-select,
+.scale-port-fixed,
 .scale-baud-select {
   background: #ffffff;
   border: 1px solid var(--border-strong);
@@ -2602,7 +2602,7 @@ input {
     width: 100%;
   }
 
-  .scale-port-select {
+  .scale-port-fixed {
     max-width: none;
     flex: 1 1 180px;
   }
@@ -2641,7 +2641,7 @@ input {
     width: 100%;
   }
 
-  .scale-port-select {
+  .scale-port-fixed {
     flex: 1 1 150px;
   }
 

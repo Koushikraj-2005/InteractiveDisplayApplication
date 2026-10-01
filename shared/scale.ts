@@ -14,22 +14,14 @@ export type ScaleStatus =
   | 'reconnecting'
   | 'failed';
 
-/** USB adapters are listed separately from on-board UART ports in the picker. */
-export type PortKind = 'usb' | 'uart';
-
-export interface SerialPortInfo {
-  /** Device path, e.g. /dev/ttyUSB0 */
-  path: string;
-  /** Human readable name shown in the picker, falls back to the path. */
-  label: string;
-  kind: PortKind;
-  manufacturer: string | null;
-  serialNumber: string | null;
-  vendorId: string | null;
-  productId: string | null;
-  /** True when this is the port the server will use if nothing else is chosen. */
-  isDefault: boolean;
-}
+/**
+ * The scale sits on one fixed port. It used to be offered as a picker, but a
+ * shop has one machine on one adapter: the list only ever had the right answer
+ * somewhere in it, and choosing the wrong entry meant reading from a port with
+ * nothing on it. The port is still overridable with SCALE_PORT, for a bench
+ * setup or the virtual scale.
+ */
+export const DEFAULT_SCALE_PORT = '/dev/ttyS1';
 
 /** One decoded weight from the machine, in kilograms. */
 export interface ScaleReading {
@@ -60,7 +52,8 @@ export interface ScaleSnapshot {
 }
 
 export interface ScalePortsResponse {
-  ports: SerialPortInfo[];
+  /** The one port the server reads from. */
+  port?: string;
   baudRates: number[];
   /** False when the server was started with SCALE_ENABLED=0. */
   enabled?: boolean;

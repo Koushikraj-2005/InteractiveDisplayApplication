@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { SerialPortInfo } from '../../../shared/scale.ts';
+import { DEFAULT_SCALE_PORT } from '../../../shared/scale.ts';
 import type { ConnectOptions, DeviceState } from '../lib/weightSource.ts';
 
 const FALLBACK_BAUD = 9600;
+const FALLBACK_PORT = DEFAULT_SCALE_PORT;
 
 const statusText = (device: DeviceState | null | undefined): string => {
   if (!device) return '';
@@ -15,10 +16,9 @@ const statusText = (device: DeviceState | null | undefined): string => {
 
 export interface ScaleConnectionProps {
   device: DeviceState;
-  ports: SerialPortInfo[];
+  /** The single fixed port the scale is read from. */
+  port: string;
   baudRates: number[];
-  portsLoading: boolean;
-  refreshPorts: () => void | Promise<void>;
   deviceBusy: boolean;
   deviceError: string;
   connect: (options?: ConnectOptions) => Promise<boolean>;
@@ -26,74 +26,37 @@ export interface ScaleConnectionProps {
 }
 
 /**
- * Scale link controls: which USB adapter / serial port to read from, plus
- * connect, rescan and disconnect. Weighing always reads from the machine, so
- * there is no input source to switch between.
+ * Scale link controls. The port is fixed rather than chosen: a shop has one
+ * machine on one adapter, so a picker only ever offered the wrong answer
+ * alongside the right one. It is shown as text so an operator can still see
+ * what is being read and what to plug into.
  */
 export function ScaleConnection({
   device,
-  ports,
+  port,
   baudRates,
-  portsLoading,
-  refreshPorts,
   deviceBusy,
   deviceError,
   connect,
   disconnect,
 }: ScaleConnectionProps) {
-  const [port, setPort] = useState('');
   const [baudRate, setBaudRate] = useState(FALLBACK_BAUD);
-
-  useEffect(() => {
-    if (device?.port) setPort(device.port);
-  }, [device?.port]);
 
   useEffect(() => {
     if (device?.baudRate) setBaudRate(device.baudRate);
   }, [device?.baudRate]);
 
-  useEffect(() => {
-    if (port || ports.length === 0) return;
-    const preferred =
-      ports.find((p: SerialPortInfo) => p.isDefault) ||
-      ports.find((p: SerialPortInfo) => p.kind === 'usb') ||
-      ports[0];
-    if (preferred) setPort(preferred.path);
-  }, [ports, port]);
-
-  const usbPorts = ports.filter((p) => p.kind === 'usb');
-  const uartPorts = ports.filter((p) => p.kind !== 'usb');
+  // What the server is actually using wins over the built-in default, so a
+  // bench set up on another port shows the truth rather than a stale /dev/ttyS1.
+  const shownPort = device?.port || port || FALLBACK_PORT;
   const connected = Boolean(device?.connected);
 
   return (
     <div className="scale-conn">
       <div className="scale-conn-body">
-        <select
-          className="scale-port-select"
-          value={port}
-          onChange={(event) => setPort(event.target.value)}
-          aria-label="Serial port"
-        >
-          {usbPorts.length > 0 && (
-            <optgroup label="USB adapters">
-              {usbPorts.map((p) => (
-                <option key={p.path} value={p.path}>
-                  {p.label} ({p.path})
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {uartPorts.length > 0 && (
-            <optgroup label="Serial ports">
-              {uartPorts.map((p) => (
-                <option key={p.path} value={p.path}>
-                  {p.path}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {ports.length === 0 && <option value="">No serial ports found</option>}
-        </select>
+        <span className="scale-port-fixed" title="The scale is read from this port">
+          {shownPort}
+        </span>
 
         <select
           className="scale-baud-select"
@@ -108,16 +71,6 @@ export function ScaleConnection({
           ))}
         </select>
 
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={refreshPorts}
-          disabled={portsLoading || deviceBusy}
-          title="Rescan for serial ports"
-        >
-          {portsLoading ? 'SCANNING…' : 'RESCAN'}
-        </button>
-
         {connected ? (
           <button
             type="button"
@@ -131,8 +84,8 @@ export function ScaleConnection({
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            onClick={() => connect({ port, baudRate })}
-            disabled={deviceBusy || !port}
+            onClick={() => connect({ port: shownPort, baudRate })}
+            disabled={deviceBusy}
           >
             {deviceBusy ? 'CONNECTING…' : 'CONNECT'}
           </button>

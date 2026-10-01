@@ -1,8 +1,6 @@
 import { EventEmitter } from 'node:events';
-import fs from 'node:fs';
-import path from 'node:path';
+import { DEFAULT_SCALE_PORT } from '../../shared/scale.ts';
 import type {
-  SerialPortInfo,
   ScaleReading,
   ScaleStatus,
   ScaleStatusInfo,
@@ -13,7 +11,7 @@ import {
   YAOHUA_START_CHAR,
 } from './yaohua.ts';
 
-export const DEFAULT_PORT_PATH = process.env.SCALE_PORT || '/dev/ttyUSB0';
+export const DEFAULT_PORT_PATH = process.env.SCALE_PORT || DEFAULT_SCALE_PORT;
 export const DEFAULT_BAUD_RATE = Number(process.env.SCALE_BAUD_RATE || 9600);
 
 export const SUPPORTED_BAUD_RATES = [
@@ -44,7 +42,6 @@ const READING_MAX_AGE_MS = 2000;
  */
 const POLL_INTERVAL_MS = Number(process.env.SCALE_POLL_INTERVAL_MS ?? 100);
 const POLL_BYTE = process.env.SCALE_POLL_BYTE || '?';
-const BY_ID_DIR = '/dev/serial/by-id';
 
 const round3 = (value: number): number => Math.round(value * 1000) / 1000;
 
@@ -79,82 +76,6 @@ async function loadSerialPort(): Promise<SerialPortCtor | null> {
   } catch {
     return null;
   }
-}
-
-/**
- * Map /dev/serial/by-id symlinks onto their tty paths so the UI can show a
- * human readable name ("Prolific USB-Serial Controller") instead of ttyUSB0.
- */
-function readByIdNames(): Map<string, string> {
-  const names = new Map<string, string>();
-  let entries: string[] = [];
-  try {
-    entries = fs.readdirSync(BY_ID_DIR);
-  } catch {
-    return names;
-  }
-  for (const entry of entries) {
-    let target = '';
-    try {
-      target = fs.realpathSync(path.join(BY_ID_DIR, entry));
-    } catch {
-      continue;
-    }
-    const label = entry
-      .replace(/^usb-/, '')
-      .replace(/-if\d+.*$/, '')
-      .replace(/-port\d+$/, '')
-      .replace(/_/g, ' ')
-      .trim();
-    if (label) names.set(target, label);
-  }
-  return names;
-}
-
-/**
- * Lists the serial ports available on this machine, USB adapters first.
- * Returns [] when serialport is not installed.
- */
-export async function listSerialPorts(): Promise<SerialPortInfo[]> {
-  const SerialPort = await loadSerialPort();
-  if (!SerialPort) return [];
-  let raw: Array<{
-    path: string;
-    manufacturer?: string;
-    serialNumber?: string;
-    vendorId?: string;
-    productId?: string;
-  }> = [];
-  try {
-    const lister = SerialPort as unknown as {
-      list?: () => Promise<typeof raw>;
-    };
-    if (typeof lister.list !== 'function') return [];
-    raw = await lister.list();
-  } catch {
-    return [];
-  }
-  const byId = readByIdNames();
-  return raw
-    .map((port): SerialPortInfo => {
-      const friendly = byId.get(port.path);
-      return {
-        path: port.path,
-        label: friendly || port.manufacturer || port.path,
-        kind: /ttyUSB|ttyACM/.test(port.path) ? 'usb' : 'uart',
-        manufacturer: port.manufacturer || null,
-        serialNumber: port.serialNumber || null,
-        vendorId: port.vendorId || null,
-        productId: port.productId || null,
-        isDefault: port.path === DEFAULT_PORT_PATH,
-      };
-    })
-    .sort(
-      (a, b) =>
-        (a.kind === b.kind ? 0 : a.kind === 'usb' ? -1 : 1) ||
-        Number(b.isDefault) - Number(a.isDefault) ||
-        a.path.localeCompare(b.path, undefined, { numeric: true }),
-    );
 }
 
 /**

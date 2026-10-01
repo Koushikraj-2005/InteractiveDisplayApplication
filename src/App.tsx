@@ -133,7 +133,7 @@ export default function App() {
       ),
     [cart.length, stage, billPayload, savedBill],
   );
-  const { getReading, live, device, ports, baudRates, portsLoading, refreshPorts, deviceBusy, deviceError, connect, disconnect } =
+  const { getReading, live, device, port, baudRates, deviceBusy, deviceError, connect, disconnect } =
     useWeightSource();
   const tare = useMemo(() => new TareBaseline(), []);
   const stabilityLatch = useMemo(() => new StabilityLatch(), []);
@@ -679,10 +679,8 @@ export default function App() {
           <ScaleSettings state={scaleLinkState} label={scaleLinkLabel}>
             <ScaleConnection
               device={device}
-              ports={ports}
+              port={port}
               baudRates={baudRates}
-              portsLoading={portsLoading}
-              refreshPorts={refreshPorts}
               deviceBusy={deviceBusy}
               deviceError={deviceError}
               connect={connect}

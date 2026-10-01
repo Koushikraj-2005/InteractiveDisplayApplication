@@ -9,7 +9,6 @@ export {
   DEFAULT_PORT_PATH,
   DEFAULT_BAUD_RATE,
   SUPPORTED_BAUD_RATES,
-  listSerialPorts,
 } from './scaleService.ts';
 export {
   createScaleStreamHandler,

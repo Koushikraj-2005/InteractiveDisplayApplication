@@ -3,13 +3,13 @@
  * Standalone scale reader — tests the physical connection and weight reading
  * without involving the app or the API server.
  *
- *   node scripts/scale-read.ts                     auto-pick USB port @ 9600
- *   node scripts/scale-read.ts /dev/ttyUSB0        pick a port
- *   node scripts/scale-read.ts /dev/ttyUSB0 19200  pick a port and baud rate
- *   node scripts/scale-read.ts --scan              try every baud rate
- *   node scripts/scale-read.ts --no-poll           don't request readings
- *   node scripts/scale-read.ts /dev/ttyUSB0 9600 --poll 200
- *                                                    request every 200ms
+ *   node scripts/scale-read.ts                     the default port @ 9600
+ *   node scripts/scale-read.ts /dev/ttyS1           a different port
+ *   node scripts/scale-read.ts /dev/ttyS1 19200     a different port and baud
+ *   node scripts/scale-read.ts --scan               try every baud rate
+ *   node scripts/scale-read.ts --no-poll            don't request readings
+ *   node scripts/scale-read.ts /dev/ttyS1 9600 --poll 200
+ *                                                     request every 200ms
  *
  * This scale answers one frame per request, so polling is on by default at
  * 100ms. That saturates its ~10 readings/sec ceiling; polling faster does not
@@ -20,6 +20,7 @@
  */
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
+import { DEFAULT_SCALE_PORT } from '../shared/scale.ts';
 import {
   parseYaohuaFrame,
   YAOHUA_FRAME_LENGTH as FRAME_LENGTH,
@@ -290,9 +291,13 @@ async function main() {
       ? Number(args[pollIndex + 1]) || DEFAULT_POLL_MS
       : DEFAULT_POLL_MS;
 
+  // The app reads one fixed port, so the diagnostic defaults to the same one.
+  // Auto-picking a USB adapter here would test a different port than the shop
+  // actually uses, which is a confusing way to be told the scale is fine.
   const port: string =
     positional[0] ||
-    (ports.find((p) => /ttyUSB|ttyACM/.test(p.path)) || ports[0]).path;
+    DEFAULT_SCALE_PORT ||
+    (ports.find((p) => p.path === DEFAULT_SCALE_PORT) || ports[0]).path;
   const baudRate = Number(positional[1]) || 9600;
 
   if (!ports.some((p) => p.path === port)) {

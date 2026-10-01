@@ -194,8 +194,8 @@ export default function StaffApp() {
   const [saveError, setSaveError] = useState('');
   const [lastPayload, setLastPayload] = useState<WeighingPayload | null>(null);
 
-  const { getReading, live, device, ports, baudRates,
-    portsLoading, refreshPorts, deviceBusy, deviceError, connect, disconnect } =
+  const { getReading, live, device, port, baudRates,
+    deviceBusy, deviceError, connect, disconnect } =
     useWeightSource();
   const tare = useMemo(() => new TareBaseline(), []);
 
@@ -555,10 +555,8 @@ export default function StaffApp() {
           <ScaleSettings state={scaleLinkState} label={scaleLinkLabel}>
             <ScaleConnection
               device={device}
-              ports={ports}
+              port={port}
               baudRates={baudRates}
-              portsLoading={portsLoading}
-              refreshPorts={refreshPorts}
               deviceBusy={deviceBusy}
               deviceError={deviceError}
               connect={connect}
