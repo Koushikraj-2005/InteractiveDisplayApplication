@@ -20,6 +20,7 @@
     "server": "node server/index.ts",
     "start": "node server/index.ts",
     "dev:all": "concurrently -k -n API,WEB,STAFF -c green,blue,magenta \"node server/index.ts\" \"vite\" \"vite --config staff-app/vite.config.ts\"",
+    "scale:sim": "node scripts/simulate-scale.ts",
     "scale:check": "node scripts/scale-check.ts",
     "scale:read": "node scripts/scale-read.ts",
     "tts:download": "node scripts/download-tts.ts",
