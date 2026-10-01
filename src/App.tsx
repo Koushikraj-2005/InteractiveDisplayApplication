@@ -7,7 +7,7 @@ import {
   round3,
   type ReadingVerdict,
 } from './lib/weights.ts';
-import { ReZeroLatch } from '../shared/reZeroLatch.ts';
+import { TareBaseline } from '../shared/tareBaseline.ts';
 import { StabilityLatch } from '../shared/stabilityLatch.ts';
 import { useAutoAdvance } from '../shared/useAutoAdvance.ts';
 import { useWeightSource } from './lib/weightSource.ts';
@@ -135,7 +135,7 @@ export default function App() {
   );
   const { getReading, live, device, ports, baudRates, portsLoading, refreshPorts, deviceBusy, deviceError, connect, disconnect } =
     useWeightSource();
-  const latch = useMemo(() => new ReZeroLatch(), []);
+  const tare = useMemo(() => new TareBaseline(), []);
   const stabilityLatch = useMemo(() => new StabilityLatch(), []);
   const advancedUidRef = useRef<string | null>(null);
   // Guards against a second POST for the same weighing. The button is disabled
@@ -256,7 +256,9 @@ export default function App() {
     setCart(restored);
     setActiveIndex(firstPending);
     setResumed(true);
-    latch.reset();
+    // The finished lines are still on the pan, so whatever the scale is reading
+    // now becomes the zero the resumed line is measured against.
+    tare.zeroAt(getReading());
     stabilityLatch.reset();
     setStage('weighing');
     // Reached once on mount: the item master is still loading, and a second
@@ -267,35 +269,38 @@ export default function App() {
   const selectedItem = items.find((item: Item) => item.id === selectedItemId) ?? null;
 
   const activeItem = stage !== 'select' ? cart[activeIndex] : null;
+  const accumulated = getReading();
+  // The scale is never re-zeroed and nothing is taken off the pan between lines,
+  // so this reading is the total of every item weighed so far. Each line is
+  // judged on what has been added since it started, which is the reading minus
+  // the zero point captured then.
+  const netWeight = tare.net(accumulated);
+  const loadRemoved = tare.underBase(accumulated);
   const status: ReadingVerdict = activeItem
-    ? evaluateReading(activeItem.required, getReading())
+    ? evaluateReading(activeItem.required, netWeight)
     : NEUTRAL;
-  const currentReading = getReading();
   // Feed the latch on every settled reading, so a line that has been seen to
   // settle is remembered even if the scale's own flag flickers afterwards.
   useEffect(() => {
-    // A reading that has moved off the accepted weight means the operator has
-    // taken the previous item off, so that weight can no longer satisfy the
-    // next line. Without this the guard also blocked a genuine second item
-    // weighing the same as the first, which formulas do ask for.
-    latch.observe(currentReading);
-    stabilityLatch.observe(currentReading, live?.stable === true, status.correct);
-  }, [currentReading, live?.stable, status.correct]);
+    // Judged on the net weight, so stability has to be seen on the same figure
+    // the verdict was given on. Otherwise a reading the scale reports as settled
+    // while the net weight is still moving would arm the line early.
+    stabilityLatch.observe(netWeight, live?.stable === true, status.correct);
+  }, [netWeight, live?.stable, status.correct]);
   // A live scale must be settled before a line counts, otherwise a reading
   // that merely swept past the target mid-placement gets accepted. The scale
   // only has to be seen to settle once, though: requiring its stable flag to
   // hold for the whole auto-advance countdown meant an ordinary flicker could
   // restart the countdown and leave a correct line stuck on TARGET REACHED.
-  const liveSettled = Boolean(device.connected) && stabilityLatch.hasSettled(currentReading);
-  const readingStale = latch.isStale(currentReading);
-  const nextEnabled = status.correct && liveSettled && !readingStale;
+  const liveSettled = Boolean(device.connected) && stabilityLatch.hasSettled(netWeight);
+  const nextEnabled = status.correct && liveSettled;
   // A correct weight advances on its own, so the operator never has to reach
   // for the button mid-pour. The one place a button is still needed is a line
   // that is at the target but whose scale never reports it settled: a load cell
   // that dithers a gram or two at rest will never produce three byte-identical
   // frames, which would otherwise leave the line wedged with no way forward
   // short of throwing the whole batch away.
-  const forceNextEnabled = status.correct && !readingStale && !nextEnabled;
+  const forceNextEnabled = status.correct && !nextEnabled;
   // Tell the operator the moment a typed target will be snapped, rather than
   // letting the rounded figure appear only on the bill.
   const reqRoundingNote = targetRoundingNote(parseWeight(reqInput) ?? NaN);
@@ -422,7 +427,10 @@ export default function App() {
     // handleNext drop the very first line of the next one, and the line would
     // sit on TARGET REACHED forever with no way to move it.
     advancedUidRef.current = null;
-    latch.reset();
+    // Whatever the pan is carrying when the batch starts is not part of the
+    // batch, so it is zeroed out here instead of being asked for as the first
+    // line's weight.
+    tare.zeroAt(getReading());
     stabilityLatch.reset();
     saveCart(cart, null);
     setStage('weighing');
@@ -433,7 +441,10 @@ export default function App() {
     // A tap on NEXT can land in the same moment the auto-advance timer fires.
     // Both would advance the same line, so the second one is dropped.
     if (advancedUidRef.current === activeItem.uid) return;
-    const current = getReading();
+    const reading = getReading();
+    // The line is judged and recorded on the net weight, which is the item on
+    // top of the zero point and not the total the scale is displaying.
+    const current = tare.net(reading);
     // The same verdict the operator is looking at. This used to compare the raw
     // reading against the target instead, which is stricter than the screen:
     // a target of 51 kg is accepted on screen from 51.000 up to 51.999, because
@@ -443,12 +454,9 @@ export default function App() {
     // countdown, and then had the advance silently dropped here, so the line
     // never moved on. One source of truth means the two cannot disagree.
     if (current == null || !evaluateReading(activeItem.required, current).correct) return;
-    // Re-check the latch here as well as in the button, so a stale reading
-    // cannot slip through via a stale render. The forced path is the only way
-    // past a scale that never reports its reading as settled, and the operator
-    // is still only ever allowed to advance a line the scale actually reads
-    // as being at target.
-    if (latch.isStale(current)) return;
+    // The forced path is the only way past a scale that never reports its
+    // reading as settled, and the operator is still only ever allowed to advance
+    // a line the scale actually reads as being at target.
     if (!force && !stabilityLatch.hasSettled(current)) return;
     // Only now is the line really being advanced, so this is the point at which
     // to claim it. Claiming it before the guards passed meant a tap that landed
@@ -456,7 +464,8 @@ export default function App() {
     // could never advance afterwards, because every later call saw the uid
     // already taken and returned.
     advancedUidRef.current = activeItem.uid;
-    // Record what the scale actually read, so a bill shows target vs measured.
+    // Record the weight of this item alone, so a bill shows target vs measured
+    // for the item and not for the whole batch sitting on the pan.
     const actual = round3(current);
     // Built from the current cart rather than via the updater, because the last
     // line is saved in the same tick and the updater's result is not readable
@@ -465,9 +474,11 @@ export default function App() {
       index === activeIndex ? { ...item, status: 'completed', actual } : item,
     );
     setCart(completed);
-    // The previous item is still on the scale. Latch its weight so the next
-    // line needs a genuinely different reading.
-    latch.latch(actual);
+    // Nothing is taken off the scale between lines, so the total now on the pan
+    // becomes the zero the next line is measured against. That is what stops the
+    // weight just accepted from satisfying the next line: the next line starts
+    // from a net of zero, not from the whole batch.
+    tare.carry(reading);
     if (activeIndex < cart.length - 1) {
       stabilityLatch.reset();
       setActiveIndex(activeIndex + 1);
@@ -559,7 +570,7 @@ export default function App() {
     setCart([]);
     setActiveIndex(0);
     advancedUidRef.current = null;
-    latch.reset();
+    tare.reset();
     stabilityLatch.reset();
     setSavedBill(null);
     setBillError('');
@@ -584,7 +595,7 @@ export default function App() {
     setCart([]);
     setActiveIndex(0);
     advancedUidRef.current = null;
-    latch.reset();
+    tare.reset();
     stabilityLatch.reset();
     setSelectedItemId(null);
     setReqInput('');
@@ -775,12 +786,15 @@ export default function App() {
                 activeItem={activeItem}
                 status={status}
                 autoAdvanceMs={autoAdvanceMs}
-                reading={live?.weight ?? null}
+                reading={netWeight}
+                accumulatedReading={accumulated}
+                zeroAt={tare.baseValue()}
+                loadRemoved={loadRemoved}
                 nextEnabled={nextEnabled}
                 forceNextEnabled={forceNextEnabled}
                 nextBlockedReason={
-                  readingStale
-                    ? latch.staleReason()
+                  loadRemoved
+                    ? 'Material came off the scale. Clear the pan and press ZERO HERE, or put the weight back on.'
                     : status.correct && !liveSettled
                       ? 'The scale has not reported this reading as settled yet. It may never do so — use NEXT LINE to move on.'
                       : null
@@ -789,6 +803,7 @@ export default function App() {
                 device={device}
                 live={live}
                 onNext={handleNext}
+                onZero={() => tare.zeroAt(getReading())}
                 onCancel={cancelWeighing}
               />
             )}

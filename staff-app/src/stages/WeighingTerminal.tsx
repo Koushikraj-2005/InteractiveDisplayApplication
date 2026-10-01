@@ -32,8 +32,17 @@ export interface WeighingTerminalProps {
   activeIndex: number;
   activeItem: CartItem | null;
   status: ReadingVerdict;
-  /** The weight the machine last reported, or null when nothing is arriving. */
+  /**
+   * Net weight of the item being weighed: the scale's reading minus the weight
+   * already on the pan when this line started. Null when nothing is arriving.
+   */
   reading: number | null;
+  /** What the scale itself is reading, i.e. the net weight plus the zero point. */
+  accumulatedReading?: number | null;
+  /** The weight already on the pan, treated as zero for this line. */
+  zeroAt?: number;
+  /** True when the reading has fallen below the zero point, i.e. material came off. */
+  loadRemoved?: boolean;
   nextEnabled: boolean;
   /**
    * True when the line is at its target but the machine has never reported the
@@ -53,6 +62,8 @@ export interface WeighingTerminalProps {
   live?: ScaleReading | null;
   /** Called with true to advance a settled-looking line the machine never flagged. */
   onNext?: (force?: boolean) => void;
+  /** Re-take the zero point from the current reading. */
+  onZero?: () => void;
   onCancel?: () => void;
 }
 
@@ -62,6 +73,9 @@ export function WeighingTerminal({
   activeItem,
   status,
   reading,
+  accumulatedReading = null,
+  zeroAt = 0,
+  loadRemoved = false,
   nextEnabled,
   forceNextEnabled = false,
   nextBlockedReason = null,
@@ -70,6 +84,7 @@ export function WeighingTerminal({
   device = null,
   live = null,
   onNext,
+  onZero,
   onCancel,
 }: WeighingTerminalProps) {
   const [alertsOn, setAlertsOn] = useState(alertsEnabled);
@@ -86,6 +101,9 @@ export function WeighingTerminal({
   // scale sitting on 51.2 kg for a 51 kg line reads 51.000 and is accepted,
   // rather than showing 51.200 next to a target it can never match.
   const shown = current == null ? null : roundOffWeight(current);
+  // The scale is never re-zeroed, so its own display is the total on the pan.
+  // Shown next to the net weight so the two figures cannot be confused.
+  const panTotal = accumulatedReading == null ? null : roundOffWeight(accumulatedReading);
 
   useEffect(() => {
     if (!activeItem || status.type === 'underweight') return;
@@ -265,8 +283,30 @@ export function WeighingTerminal({
             <div className="metric-value">{fmtWeight(activeItem.required)}</div>
           </div>
 
+          <div className="metric">
+            <div className="metric-label">
+              {zeroAt > 0 ? 'Already On The Scale (zero point)' : 'Zero Point'}
+            </div>
+            <div className="metric-value">{fmtWeight(zeroAt)}</div>
+            <div className="metric-hint">
+              {zeroAt > 0
+                ? 'Finished items are left on the pan, so this is subtracted for you.'
+                : 'The scale was zeroed when weighing started. Clear the pan before the first item.'}
+              {onZero && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm btn-zero-here"
+                  onClick={onZero}
+                  title="Treat the scale reading right now as zero"
+                >
+                  ZERO HERE
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="metric metric-input metric-device">
-            <div className="metric-label">Current Weight (Live Scale)</div>
+            <div className="metric-label">Current Item Weight</div>
             <div className="live-reading">
               <span className={`live-reading-value ${connected ? '' : 'muted'}`}>
                 {shown == null ? '—.———' : fmtWeightNoUnit(shown)}
@@ -274,6 +314,12 @@ export function WeighingTerminal({
               <span className="unit">kg</span>
               {connected && live?.stable ? <span className="live-stable-badge">STABLE</span> : null}
             </div>
+            {panTotal != null && zeroAt > 0 && (
+              <div className="metric-hint">
+                The scale is reading {fmtWeight(panTotal)} in total. Leave the finished item on
+                and add the next one on top — the software takes the difference.
+              </div>
+            )}
             <div className="metric-hint">
               {connected
                 ? `Reading from YH-T7E over RS232 (${device?.port} @ ${device?.baudRate} baud)`
@@ -303,6 +349,17 @@ export function WeighingTerminal({
             </div>
           </div>
 
+          {loadRemoved && !offline && (
+            <div className="status-box status-device" role="alert">
+              <div className="status-title">LOAD REMOVED</div>
+              <div className="status-detail">
+                The scale is reading below the {fmtWeight(zeroAt)} it was zeroed at, so something
+                came off the pan. Put it back, or clear the pan and press ZERO HERE. This line
+                cannot be finished until the zero point matches the pan again.
+              </div>
+            </div>
+          )}
+
           {offline ? (
             <div className="status-box status-device">
               <div className="status-title">DEVICE OFFLINE</div>
@@ -324,7 +381,7 @@ export function WeighingTerminal({
               </div>
               <div className="status-detail">
                 {countingDown
-                  ? 'Moving on by itself. Take the item off now.'
+                  ? 'Moving on by itself. Leave this item on the scale and add the next one on top.'
                   : 'Waiting for the scale to report this reading as settled.'}
               </div>
             </div>

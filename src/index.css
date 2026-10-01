@@ -429,6 +429,11 @@ input {
   font-size:calc(11px * var(--font-scale));
 }
 
+.btn-zero-here {
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
 .refresh-btn {
   margin-left: auto;
   padding: 5px 12px;
