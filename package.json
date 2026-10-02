@@ -1,32 +1,51 @@
 {
-  "name": "naveen-farms",
+  "name": "naveen-poultry-farms",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:staff": "vite build --config staff-app/vite.config.js",
+    "build:staff": "vite build --config staff-app/vite.config.ts",
     "build:all": "npm run build && npm run build:staff",
+    "cap:sync": "npm run build && cap sync android",
+    "android:apk": "npm run cap:sync && npm run android:assemble",
+    "android:assemble": "cd android && ./gradlew assembleDebug",
+    "android:open": "cap open android",
+    "android:install": "cd android && ./gradlew installDebug",
+    "android:apks": "cd android && ./gradlew assembleRelease",
     "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.app.json --noEmit",
     "verify": "npm run build && vite preview",
-    "server": "node server/index.mjs",
-    "start": "node server/index.mjs",
-    "dev:all": "concurrently -k -n API,WEB,STAFF -c green,blue,magenta \"node server/index.mjs\" \"vite\" \"vite --config staff-app/vite.config.js\"",
-    "tts:download": "node scripts/download-tts.mjs"
+    "server": "node server/index.ts",
+    "start": "node server/index.ts",
+    "dev:all": "concurrently -k -n API,WEB,STAFF -c green,blue,magenta \"node server/index.ts\" \"vite\" \"vite --config staff-app/vite.config.ts\"",
+    "scale:sim": "node scripts/simulate-scale.ts",
+    "scale:check": "node scripts/scale-check.ts",
+    "scale:read": "node scripts/scale-read.ts",
+    "tts:download": "node scripts/download-tts.ts",
+    "test": "node --test tests/*.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.1",
     "@capacitor/cli": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "serialport": "^13.0.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.25",
+    "@types/node": "^22.20.4",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^10.0.5",
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "typescript": "^5.9.3",
     "vite": "^5.4.11"
   }
 }

@@ -1,9 +1,9 @@
 {
-  "name": "naveen-farms-staff",
+  "name": "naveen-poultry-farms-staff",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Naveen Farms — standalone staff weighing terminal (web). Connects to the Naveen Farms backend.",
+  "description": "Naveen Poultry Farms — standalone staff weighing terminal (web). Connects to the Naveen Poultry Farms backend.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

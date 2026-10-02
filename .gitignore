@@ -5,4 +5,13 @@ server/data.db
 server/data.db-shm
 server/data.db-wal
 server/storage/tts/
+# Item photos are runtime uploads referenced by items.image_path, and the
+# database holding those paths is ignored too, so they are deployment state
+# rather than source.
+server/storage/item-images/
 android/
+# esbuild temp chunks emitted by the staff vite config
+staff-app/vite.config.ts.timestamp-*.mjs
+
+# TypeScript incremental build artefacts
+*.tsbuildinfo

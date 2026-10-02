@@ -1,0 +1,137 @@
+/* Scale settings popover, shared by the main and staff apps.
+
+   The connection controls live in a panel anchored to the trigger rather than in
+   the header row, so the header itself stays one compact line. The panel keeps
+   the header's own surface colours so the controls inside look native. */
+
+.scale-settings {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.scale-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #431f1d;
+  color: #ffffff;
+  border: 1px solid #70403d;
+  border-radius: 3px;
+  padding: 5px 9px;
+  /* 44px tall: this is the only way to reach the scale controls, and it was
+     rendering 24px high -- too small for a gloved thumb on a shop terminal. */
+  min-height: 44px;
+  cursor: pointer;
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.scale-settings-btn:hover {
+  background: #4f2826;
+  border-color: #8a5a56;
+}
+
+.scale-settings-btn[aria-expanded='true'] {
+  background: #5c2f2c;
+  border-color: #9c6b67;
+}
+
+.scale-settings-glyph {
+  font-size: calc(13px * var(--font-scale));
+  line-height: 1;
+}
+
+.scale-settings-mode {
+  white-space: nowrap;
+}
+
+/* Mirrors .mode-dot in the header so the trigger reads the same way the
+   SCALE ONLINE / SCALE OFFLINE badge did. */
+.scale-settings-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: #7d6b6a;
+}
+
+.scale-settings-dot.online {
+  background: #4ade80;
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.25);
+}
+
+.scale-settings-dot.offline {
+  background: #fbbf24;
+}
+
+.scale-settings-dot.error {
+  background: #ff5f5f;
+  box-shadow: 0 0 0 2px rgba(255, 95, 95, 0.25);
+}
+
+.scale-settings-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  /* Wide enough for the port list, but never wider than the screen. */
+  width: max-content;
+  min-width: 260px;
+  max-width: min(360px, calc(100vw - 24px));
+  max-height: min(70vh, 430px);
+  overflow-y: auto;
+  background: #431f1d;
+  border: 1px solid #70403d;
+  border-radius: 4px;
+  padding: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  text-align: left;
+}
+
+/* The panel is a narrow column rather than a wide row, so the controls stack
+   predictably instead of squeezing the status line into its neighbour. */
+.scale-settings-panel .scale-conn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+
+.scale-settings-panel .mode-toggle {
+  flex: 0 0 auto;
+}
+
+.scale-settings-panel .mode-badge {
+  margin-left: auto;
+  padding-right: 2px;
+}
+
+.scale-settings-panel .scale-conn-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  /* Its own full-width row: the port list, baud rate and the buttons read as
+     one group instead of being broken across the toggle. */
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.scale-settings-panel .scale-port-select,
+.scale-settings-panel .scale-baud-select {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.scale-settings-panel .scale-conn-status {
+  flex: 1 1 100%;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

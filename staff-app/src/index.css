@@ -10,17 +10,46 @@
   --panel-head: #f4f5f7;
   --border: #d2d7de;
   --border-strong: #aeb6c1;
-  --header-bg: #24384f;
-  --header-border: #1a2a3d;
+  /* Bright red. White header text clears 4.98:1 on this, which matters because
+     the owner's name is 11px and has to meet the 4.5:1 bar. */
+  --header-bg: #d32f2f;
+  --header-border: #b32424;
   --text: #2a2f36;
   --muted: #63707e;
-  --blue: #2f5ea3;
-  --blue-hover: #28508c;
-  --blue-border: #274f8c;
+  /* Renamed from --blue: the name no longer matched the colour. */
+  --brand: #d32f2f;
+  --brand-hover: #b32424;
+  /* Red for text on a pale red tint. --brand is a fill colour: white on it
+     clears 4.98:1, but --brand text on the #f8eeee tab tint only reached
+     4.38:1, so tints take this deeper red instead. */
+  --brand-ink: #b32424;
+  --brand-border: #9c1f1f;
+  --accent: #d32f2f;
   --green: #1f7a33;
   --amber: #a15c00;
   --red: #b02024;
   --mono: "Consolas", "Menlo", "DejaVu Sans Mono", ui-monospace, monospace;
+  /* Multiplied into every font-size in this file. The four steps are chosen in
+     shared/fontScale.ts and applied as a data-font-scale attribute on <html>. */
+  --font-scale: 1;
+}
+
+/* Text size steps. Kept as attribute selectors rather than an inline custom
+   property so @media print can still force the normal size. */
+:root[data-font-scale='sm'] {
+  --font-scale: 0.9;
+}
+
+:root[data-font-scale='md'] {
+  --font-scale: 1;
+}
+
+:root[data-font-scale='lg'] {
+  --font-scale: 1.15;
+}
+
+:root[data-font-scale='xl'] {
+  --font-scale: 1.3;
 }
 
 html,
@@ -28,13 +57,27 @@ body {
   height: 100%;
 }
 
+html {
+  /* Android WebView turns on Chrome's text autosizing by default, which inflates
+     any text it thinks is too small for the viewport: on a 392px phone a 16px
+     font was laid out at 22px. That fought the A-/A+ control, which is the only
+     thing that should be changing text size here, and it was the reason the
+     header measured 184px on the device against 114px in a desktop browser at
+     the same width. Turning autosizing off hands sizing back to --font-scale. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  font-size: 14px;
+  font-size:calc(14px * var(--font-scale));
   color: var(--text);
   background: var(--bg);
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
+  /* Stop the rubber-band scroll on a phone revealing empty space below the
+     app, and stop a sideways swipe from navigating the kiosk back a page. */
+  overscroll-behavior: none;
 }
 
 button,
@@ -45,9 +88,26 @@ input {
 .app {
   max-width: 1280px;
   margin: 0 auto;
+  /* 100dvh follows the mobile browser chrome; 100vh overflowed on phones and
+     pushed the bottom of the screen off-canvas. */
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
+}
+
+/* ---------- App footer ---------- */
+
+/* margin-top: auto pins the credit to the bottom of the viewport on short
+   screens, because .app is a full-height flex column and <main> has no flex
+   growth of its own. .no-print keeps it off printed output. */
+.app-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding: 12px 10px 14px;
+  text-align: center;
+  color: var(--muted);
+  font-size: calc(12px * var(--font-scale));
 }
 
 /* ---------- App header ---------- */
@@ -55,43 +115,118 @@ input {
 .app-header {
   background: var(--header-bg);
   border-bottom: 2px solid var(--header-border);
-  height: 48px;
+  /* min-height, not height: the connection bar wraps on narrow screens and a
+     fixed height clipped the wrapped rows, hiding the mode toggle. */
+  min-height: 48px;
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  /* The app is edge-to-edge (targetSdk 36), so the header starts at the very
+     top of the screen, underneath the status bar. Without adding the real inset
+     the farm name renders behind the clock. The 10px is a normal gap below the
+     status bar; the inset is the status bar's own height. Falls back to 0 in a
+     desktop browser, where there is no status bar to clear. */
+  padding: calc(10px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 16px 10px;
   justify-content: space-between;
-  color: #e7edf4;
+  gap: 12px;
+  color: #ffffff;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+/* ---------- Staff navbar: one compact line, logo hard right ----------
+
+   The scale connection controls now live in the settings popover, so this bar
+   holds only the farm name, the text size control, the settings trigger and the
+   logo. That is narrow enough to sit on a single line on a wide screen, which is
+   what stops the bar growing to three or four rows. It also matches the main
+   app, which keeps the same layout in both of its modes. */
+@media (min-width: 1000px) {
+  .app-header.staff-header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: "brand controls logo";
+    align-items: center;
+    justify-content: stretch;
+  }
+
+  .app-header.staff-header .brand {
+    grid-area: brand;
+    flex-wrap: nowrap;
+  }
+
+  .app-header.staff-header .brand-name {
+    white-space: nowrap;
+  }
+
+  .app-header.staff-header .header-controls {
+    grid-area: controls;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+  }
+
+  .app-header.staff-header .app-logo {
+    grid-area: logo;
+    justify-self: end;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 999px) {
+  /* Narrow: the bar cannot stay on one line, so it becomes two rows with the
+     areas placed explicitly rather than left to wrapping. Naming the areas is
+     what keeps the logo at the far right of the first row; pushing the controls
+     back with `order` only works while they actually wrap. */
+  .app-header.staff-header {
+    display: grid;
+    /* minmax(0, 1fr), not 1fr: a bare 1fr is minmax(auto, 1fr), so the
+       controls' min-content width would widen the whole grid past the viewport
+       and the header would overflow instead of the address chip shrinking. */
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand logo"
+      "controls controls";
+    align-items: center;
+    gap: 6px;
+  }
+
+  .app-header.staff-header .brand {
+    grid-area: brand;
+    min-width: 0;
+  }
+
+  .app-header.staff-header .app-logo {
+    grid-area: logo;
+    justify-self: end;
+    margin-left: 0;
+  }
+
+  .app-header.staff-header .header-controls {
+    grid-area: controls;
+    gap: 6px;
+    /* This item spans both columns, and a spanning grid item is laid out at its
+       max-content width rather than the width of the area it spans. Left alone
+       it measured 446px inside a 369px area, so the header overflowed the 393px
+       screen sideways and nothing in the row could shrink. An explicit width
+       pins it to the area, and the address chip then truncates as intended. */
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 .header-controls {
   display: flex;
   align-items: center;
   gap: 10px;
+  /* Wraps instead of overflowing. Without this the row is as wide as its
+     contents (519px on a 392px phone), the scale settings trigger is pushed
+     off the side of the screen and the whole page scrolls sideways into empty
+     space. min-width:0 lets the row shrink below its content so .app-header
+     can wrap it down to its own line instead. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
-.voice-label {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: #9fb3c7;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.lang-select {
-  background: #1c2d41;
-  color: #e6edf4;
-  border: 1px solid #3a5270;
-  border-radius: 3px;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 6px;
-}
-
-.lang-select:focus {
-  outline: none;
-  border-color: #6c93bd;
-}
 
 .brand {
   display: flex;
@@ -99,15 +234,53 @@ input {
   gap: 9px;
 }
 
-.brand-glyph {
-  font-size: 16px;
-  color: #9fc6e8;
+/* The logo sits at the far right of the header's first row. The controls wrap
+   onto a row of their own, so margin-left:auto pins the logo to the right edge
+   of the row the brand is on rather than pushing the controls around. Height is
+   fixed and width is automatic, so the image scales by its own aspect ratio and
+   can never stretch or change the header's height. */
+.app-logo {
+  height: 52px;
+  width: auto;
+  object-fit: contain;
+  align-self: center;
+  margin-left: auto;
+  flex: 0 0 auto;
 }
 
+/* The logo is the last child of the header so that on a wide screen it renders
+   at the far right, after the buttons. On a narrow screen the brand and the
+   buttons together already fill the row, so the logo would wrap onto a row of
+   its own and stretch the header. Pushing the buttons back with order:1 lets
+   the logo share the brand's row instead, which keeps the header compact. The
+   buttons are the wider group, so they are the ones that wrap. */
+@media (max-width: 760px) {
+  .app-header > .header-controls {
+    order: 1;
+  }
+}
+
+.brand-glyph {
+  font-size:calc(16px * var(--font-scale));
+  color: #ffffff;
+}
+
+/* One child only now, kept as a column so the farm name can grow to two
+   lines on a narrow screen without disturbing the glyph. */
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+/* White, not the farm's red: the header is red, so red text on it would
+   disappear. White clears 4.98:1 on the red bar. */
 .brand-name {
   font-weight: 700;
   letter-spacing: 0.09em;
-  font-size: 15px;
+  /* The only line in the brand now, so it carries the header on its own: 20px
+     rather than the 19px it was when it sat under the owner's name. */
+  font-size:calc(20px * var(--font-scale));
   color: #ffffff;
 }
 
@@ -115,10 +288,11 @@ input {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: #cfe1f0;
+  color: #ffffff;
+  flex-shrink: 0;
 }
 
 .mode-dot {
@@ -126,6 +300,17 @@ input {
   height: 8px;
   border-radius: 50%;
   background: #f2b33d;
+  flex: 0 0 auto;
+}
+
+.mode-dot.on {
+  background: #46c264;
+  box-shadow: 0 0 6px rgba(70, 194, 100, 0.8);
+}
+
+.mode-dot.err {
+  background: #e2686d;
+  box-shadow: 0 0 6px rgba(226, 104, 109, 0.8);
 }
 
 /* ---------- Workspace ---------- */
@@ -139,17 +324,17 @@ input {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 16px;
+  font-size:calc(16px * var(--font-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
-  color: #1c2b3d;
+  color: #3d1e1c;
   text-transform: uppercase;
   margin-bottom: 2px;
 }
 
 .screen-sub {
   color: var(--muted);
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--font-scale));
   margin-bottom: 12px;
 }
 
@@ -162,19 +347,24 @@ input {
   color: #a01c20;
   border-radius: 3px;
   padding: 9px 12px;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   margin-bottom: 12px;
 }
 
 .btn-sm {
   padding: 4px 9px;
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
+}
+
+.btn-zero-here {
+  margin-left: 8px;
+  white-space: nowrap;
 }
 
 .refresh-btn {
   margin-left: auto;
   padding: 5px 12px;
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -200,24 +390,24 @@ input {
   border: none;
   border-bottom: 2px solid transparent;
   padding: 10px 16px;
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.05em;
-  color: #55606e;
+  color: #6e5655;
   cursor: pointer;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
 .nav-tab:hover {
-  color: var(--blue);
-  background: #f2f5f9;
+  color: var(--brand-ink);
+  background: #f9f2f2;
 }
 
 .nav-tab.active {
-  color: var(--blue);
-  border-bottom-color: var(--blue);
-  background: #eef2f8;
+  color: var(--brand-ink);
+  border-bottom-color: var(--brand-ink);
+  background: #f8eeee;
 }
 
 /* ---------- Panels ---------- */
@@ -235,22 +425,22 @@ input {
   background: var(--panel-head);
   border-bottom: 1px solid var(--border);
   font-weight: 700;
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--font-scale));
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #4d5866;
+  color: #664e4d;
 }
 
 .panel-sub {
   padding: 6px 10px 3px;
   color: var(--muted);
-  font-size: 11.5px;
-  border-bottom: 1px solid #eceff2;
+  font-size:calc(11.5px * var(--font-scale));
+  border-bottom: 1px solid #f2ecec;
 }
 
 .panel-placeholder {
-  color: #8a93a0;
-  font-size: 13px;
+  color: #a08b8a;
+  font-size:calc(13px * var(--font-scale));
   padding: 16px 8px;
 }
 
@@ -295,26 +485,26 @@ input {
   gap: 8px;
   padding: 7px 10px;
   border: none;
-  border-bottom: 1px solid #e6e9ed;
+  border-bottom: 1px solid #ede6e6;
   background: transparent;
   cursor: pointer;
-  font-size: 13.5px;
+  font-size:calc(13.5px * var(--font-scale));
   color: var(--text);
   text-align: left;
 }
 
 .item-row:hover {
-  background: #f0f3f7;
+  background: #f7f0f0;
 }
 
 .item-row.selected {
-  background: #e9eff7;
-  box-shadow: inset 3px 0 0 var(--blue);
+  background: #f7eae9;
+  box-shadow: inset 3px 0 0 var(--brand);
 }
 
 .item-code {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size:calc(10.5px * var(--font-scale));
   color: var(--muted);
 }
 
@@ -338,7 +528,7 @@ input {
 }
 
 .field-label {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
@@ -346,14 +536,14 @@ input {
 }
 
 .selected-name {
-  font-size: 22px;
+  font-size:calc(22px * var(--font-scale));
   font-weight: 800;
-  color: #1c2b3d;
+  color: #3d1e1c;
 }
 
 .error-text {
   color: var(--red);
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
 }
 
 /* ---------- Inputs ---------- */
@@ -368,19 +558,19 @@ input {
   border: 1px solid var(--border-strong);
   border-radius: 3px;
   padding: 7px 9px;
-  font-size: 20px;
+  font-size:calc(20px * var(--font-scale));
   font-weight: 600;
   font-family: var(--mono);
   text-align: right;
   width: 100%;
-  color: #22272e;
+  color: #2e2322;
   background: #ffffff;
 }
 
 .weight-input:focus {
   outline: none;
-  border-color: var(--blue);
-  box-shadow: 0 0 0 2px rgba(47, 94, 163, 0.18);
+  border-color: var(--brand-ink);
+  box-shadow: 0 0 0 2px rgba(211, 47, 47, 0.22);
 }
 
 .weight-input::-webkit-outer-spin-button,
@@ -407,7 +597,7 @@ input {
   display: inline-block;
   border-radius: 3px;
   border: 1px solid transparent;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   font-weight: 600;
   padding: 8px 14px;
   cursor: pointer;
@@ -416,13 +606,13 @@ input {
 }
 
 .btn-primary {
-  background: var(--blue);
-  border-color: var(--blue-border);
+  background: var(--brand);
+  border-color: var(--brand-border);
   color: #ffffff;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--blue-hover);
+  background: var(--brand-hover);
 }
 
 .btn-secondary {
@@ -432,12 +622,12 @@ input {
 }
 
 .btn-secondary:hover {
-  background: #f0f2f5;
+  background: #f5f0f0;
 }
 
 .btn-lg {
   padding: 11px 20px;
-  font-size: 14px;
+  font-size:calc(14px * var(--font-scale));
   letter-spacing: 0.03em;
 }
 
@@ -446,8 +636,8 @@ input {
 }
 
 .btn:disabled {
-  background: #c7ccd4;
-  border-color: #b7bdc6;
+  background: #d4c8c7;
+  border-color: #c6b8b7;
   color: #6b7480;
   cursor: not-allowed;
 }
@@ -457,13 +647,13 @@ input {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
 }
 
 .data-table th {
-  background: #eef0f3;
-  color: #55606e;
-  font-size: 11px;
+  background: #f3eeee;
+  color: #6e5655;
+  font-size:calc(11px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 8px 10px;
@@ -474,7 +664,7 @@ input {
 
 .data-table td {
   padding: 9px 10px;
-  border-bottom: 1px solid #e4e7eb;
+  border-bottom: 1px solid #ebe4e4;
 }
 
 .data-table tbody tr:last-child td {
@@ -511,7 +701,7 @@ input {
 
 .chip {
   display: inline-block;
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 3px 7px;
@@ -522,8 +712,8 @@ input {
 
 .chip-pending {
   color: #6b7480;
-  background: #eceef1;
-  border-color: #d9dde3;
+  background: #f1ecec;
+  border-color: #e3dad9;
 }
 
 .chip-accepted {
@@ -537,7 +727,7 @@ input {
   border: 1px solid transparent;
   color: #8b94a0;
   cursor: pointer;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   padding: 2px 6px;
   border-radius: 3px;
 }
@@ -561,7 +751,7 @@ input {
   justify-content: flex-start;
   align-items: center;
   background: var(--header-bg);
-  color: #e6edf4;
+  color: #ffffff;
   padding: 8px 12px;
   border-radius: 2px;
   margin-bottom: 12px;
@@ -570,7 +760,7 @@ input {
 }
 
 .terminal-title {
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -580,17 +770,17 @@ input {
   display: flex;
   gap: 16px;
   margin-left: auto;
-  font-size: 12px;
-  color: #9fb3c7;
+  font-size:calc(12px * var(--font-scale));
+  color: #c7a19f;
 }
 
 .terminal-item b {
-  color: #e8eef5;
+  color: #f5e9e8;
   font-weight: 700;
 }
 
 .terminal-source {
-  color: #7c93ab;
+  color: #ab7e7c;
 }
 
 .terminal-layout {
@@ -612,9 +802,9 @@ input {
   gap: 2px;
   align-items: center;
   padding: 6px 8px;
-  font-size: 12px;
-  border-bottom: 1px solid #e8eaee;
-  color: #3d4651;
+  font-size:calc(12px * var(--font-scale));
+  border-bottom: 1px solid #eee8e8;
+  color: #513e3d;
 }
 
 .queue-row > span {
@@ -627,9 +817,41 @@ input {
 .queue-item {
   min-width: 0;
   display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  line-height: 1.15;
+}
+
+/* The name and the local name stack as before; the optional photo sits to the
+   left of them. Kept in a nested element so the queue row keeps its four
+   columns and the header still lines up with the values below it. */
+.queue-item-text {
+  min-width: 0;
+  display: flex;
   flex-direction: column;
   gap: 1px;
-  line-height: 1.15;
+}
+
+.queue-thumb {
+  width: 30px;
+  height: 30px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: #fff;
+  flex: 0 0 auto;
+}
+
+.current-item-photo {
+  display: block;
+  width: 108px;
+  height: 108px;
+  object-fit: cover;
+  margin: 7px auto 2px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: #fff;
 }
 
 .queue-item-en,
@@ -640,7 +862,7 @@ input {
 }
 
 .queue-item-local {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   opacity: 0.72;
 }
 
@@ -650,9 +872,9 @@ input {
 }
 
 .queue-head {
-  background: #eef0f3;
-  color: #55606e;
-  font-size: 10.5px;
+  background: #f3eeee;
+  color: #6e5655;
+  font-size:calc(10.5px * var(--font-scale));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -664,9 +886,20 @@ input {
   text-align: right;
 }
 
+/* The row the operator is on right now. Driven by class from the terminal so
+   the queue reads as a progress list on a small screen. */
+.queue-row.current {
+  background: #fbe7e6;
+  box-shadow: inset 3px 0 0 var(--accent, #b8221a);
+}
+
+.queue-row.current .queue-status {
+  color: var(--accent, #b8221a);
+}
+
 .queue-status {
   text-align: right;
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.03em;
   white-space: nowrap;
@@ -685,12 +918,12 @@ input {
 }
 
 .queue-row.current {
-  background: #e9eff7;
-  box-shadow: inset 3px 0 0 var(--blue);
+  background: #f7eae9;
+  box-shadow: inset 3px 0 0 var(--brand);
 }
 
 .queue-row.current .queue-status {
-  color: var(--blue);
+  color: var(--brand-ink);
 }
 
 /* ---------- Current item ---------- */
@@ -706,30 +939,30 @@ input {
 }
 
 .current-item-label {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   letter-spacing: 0.1em;
   color: var(--muted);
   font-weight: 700;
 }
 
 .current-item-name {
-  font-size: 44px;
+  font-size:calc(44px * var(--font-scale));
   font-weight: 800;
-  color: #1a2736;
+  color: #361b1a;
   letter-spacing: 0.02em;
   line-height: 1.1;
 }
 
 .current-item-local {
-  font-size: 19px;
+  font-size:calc(19px * var(--font-scale));
   font-weight: 600;
-  color: #5a6673;
+  color: #735b5a;
   margin-top: 2px;
 }
 
 .current-item-required {
-  font-size: 13px;
-  color: #55606e;
+  font-size:calc(13px * var(--font-scale));
+  color: #6e5655;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -743,12 +976,41 @@ input {
   border-radius: 3px;
   cursor: pointer;
   padding: 2px 6px;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   line-height: 1;
 }
 
 .speaker-btn:hover {
-  background: #eef2f7;
+  background: #f7eeee;
+}
+
+/* ---------- Weight band alert toggle ---------- */
+
+.alert-toggle {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  color: #c7a19f;
+  cursor: pointer;
+  font-size:calc(11px * var(--font-scale));
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.alert-toggle.on {
+  border-color: #2f6f4f;
+  color: #7ee2a8;
+}
+
+.alert-toggle.off {
+  border-color: #6b3a3a;
+  color: #d98c8c;
+}
+
+.alert-toggle:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 /* ---------- Digital scale ---------- */
@@ -764,8 +1026,8 @@ input {
 }
 
 .scale-lcd-bezel {
-  background: linear-gradient(#454c54, #33393f);
-  border: 1px solid #22272c;
+  background: linear-gradient(#454c54, #3f3433);
+  border: 1px solid #2c2322;
   border-radius: 3px;
   padding: 10px;
   box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.55);
@@ -783,7 +1045,7 @@ input {
 
 .scale-reading {
   font-family: var(--mono);
-  font-size: 38px;
+  font-size:calc(38px * var(--font-scale));
   font-weight: 700;
   color: #b6e09a;
   letter-spacing: 2px;
@@ -799,7 +1061,7 @@ input {
 
 .scale-lcd-unit {
   color: #5c7550;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   font-weight: 700;
 }
 
@@ -814,8 +1076,8 @@ input {
   display: flex;
   align-items: center;
   gap: 5px;
-  color: #b9c2cb;
-  font-size: 9px;
+  color: #cbbab9;
+  font-size:calc(9px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.06em;
 }
@@ -824,8 +1086,8 @@ input {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #2b3136;
-  border: 1px solid #1b2024;
+  background: #362c2b;
+  border: 1px solid #241b1b;
   box-shadow: inset 0 0 2px rgba(0, 0, 0, 0.6);
 }
 
@@ -843,8 +1105,8 @@ input {
   margin-top: 7px;
   display: flex;
   justify-content: space-between;
-  color: #aeb8c1;
-  font-size: 8.5px;
+  color: #c1afae;
+  font-size:calc(8.5px * var(--font-scale));
   letter-spacing: 0.12em;
   font-weight: 700;
 }
@@ -861,8 +1123,8 @@ input {
 .scale-pan {
   height: 18px;
   border-radius: 2px;
-  background: linear-gradient(#f7f8fa, #d3d7dd 55%, #b9bfc7 100%);
-  border: 1px solid #9aa3ad;
+  background: linear-gradient(#faf7f7, #ddd3d3 55%, #c7bab9 100%);
+  border: 1px solid #ad9b9a;
   box-shadow: inset 0 1px 0 #ffffff, 0 3px 4px rgba(0, 0, 0, 0.18);
   position: relative;
   display: flex;
@@ -881,10 +1143,10 @@ input {
 }
 
 .scale-housing {
-  border: 1px solid #c3c9d0;
+  border: 1px solid #d0c4c3;
   border-top: none;
   border-radius: 0 0 3px 3px;
-  background: linear-gradient(#eef0f3, #dde1e6);
+  background: linear-gradient(#f3eeee, #e6dddd);
   padding: 9px 10px;
   display: flex;
   justify-content: space-between;
@@ -892,7 +1154,7 @@ input {
 }
 
 .scale-housing-label {
-  font-size: 8.5px;
+  font-size:calc(8.5px * var(--font-scale));
   color: #7a838e;
   letter-spacing: 0.08em;
   font-weight: 700;
@@ -929,11 +1191,11 @@ input {
   flex-direction: column;
   gap: 2px;
   padding: 9px 10px;
-  border-bottom: 1px solid #e6e9ed;
+  border-bottom: 1px solid #ede6e6;
 }
 
 .metric-label {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
@@ -945,15 +1207,15 @@ input {
 }
 
 .metric-hint {
-  font-size: 11px;
-  color: #8a93a0;
+  font-size:calc(11px * var(--font-scale));
+  color: #a08b8a;
   margin-top: 4px;
 }
 
 .metric-value {
   font-family: var(--mono);
   font-weight: 600;
-  font-size: 15px;
+  font-size:calc(15px * var(--font-scale));
 }
 
 .metric-value.diff-neg {
@@ -977,30 +1239,30 @@ input {
 .status-box {
   margin: 10px 10px 0;
   border: 1px solid var(--border);
-  background: #f6f7f9;
+  background: #f9f6f6;
   border-radius: 3px;
   padding: 10px;
   text-align: center;
 }
 
 .status-box .status-title {
-  font-size: 16px;
+  font-size:calc(16px * var(--font-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
 }
 
 .status-box .status-detail {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   margin-top: 3px;
   color: inherit;
   opacity: 0.8;
 }
 
 .status-neutral {
-  border-color: #c9ced6;
-  background: #f4f5f7;
-  color: #58626f;
+  border-color: #d6cac9;
+  background: #f7f4f4;
+  color: #6f5958;
 }
 
 .status-underweight {
@@ -1038,14 +1300,14 @@ input {
 }
 
 .completion-title {
-  font-size: 20px;
+  font-size:calc(20px * var(--font-scale));
   font-weight: 800;
-  color: #1c2b3d;
+  color: #3d1e1c;
   letter-spacing: 0.04em;
 }
 
 .completion-sub {
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   color: var(--muted);
   margin-top: 3px;
   font-family: var(--mono);
@@ -1055,9 +1317,9 @@ input {
   display: flex;
   justify-content: space-between;
   padding: 10px 12px;
-  font-size: 13px;
-  color: #3d4651;
-  background: #f4f5f7;
+  font-size:calc(13px * var(--font-scale));
+  color: #513e3d;
+  background: #f7f4f4;
 }
 
 .completion-actions {
@@ -1095,14 +1357,17 @@ input {
   .app-header {
     height: auto;
     min-height: 44px;
-    padding: 8px 12px;
+    /* This is the rule that actually applies on a phone. It must carry the
+       same status bar inset as the base rule above, or the farm name hides
+       behind the clock. */
+    padding: calc(10px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 12px 10px;
     flex-wrap: wrap;
     gap: 6px 10px;
   }
 
   .nav-tab {
     padding: 9px 12px;
-    font-size: 11.5px;
+    font-size:calc(11.5px * var(--font-scale));
   }
 
   .items-layout {
@@ -1130,11 +1395,15 @@ input {
   }
 
   .brand-name {
-    font-size: 13px;
+    /* The header controls wrap onto their own row, so the brand is not sharing
+       width with them and does not have to shrink. It is also the only line in
+       the brand now, so it is sized to stand on its own rather than as a
+       caption under a smaller one. */
+    font-size:calc(19px * var(--font-scale));
   }
 
   .mode-badge {
-    font-size: 10px;
+    font-size:calc(10px * var(--font-scale));
   }
 
   .stage {
@@ -1153,26 +1422,26 @@ input {
   .btn-lg {
     min-height: 46px;
     padding: 12px 20px;
-    font-size: 15px;
+    font-size:calc(15px * var(--font-scale));
   }
 
   .item-row {
     padding: 11px 10px;
-    font-size: 14px;
+    font-size:calc(14px * var(--font-scale));
   }
 
   .weight-input {
     padding: 11px 9px;
-    font-size: 21px;
+    font-size:calc(21px * var(--font-scale));
   }
 
   .remove-btn {
-    font-size: 14px;
+    font-size:calc(14px * var(--font-scale));
     padding: 6px 9px;
   }
 
   .speaker-btn {
-    font-size: 15px;
+    font-size:calc(15px * var(--font-scale));
     padding: 6px 9px;
   }
 
@@ -1187,7 +1456,7 @@ input {
   }
 
   .current-item-name {
-    font-size: 36px;
+    font-size:calc(36px * var(--font-scale));
   }
 
   .scale {
@@ -1200,11 +1469,11 @@ input {
   }
 
   .scale-reading {
-    font-size: 34px;
+    font-size:calc(34px * var(--font-scale));
   }
 
   .metric-value {
-    font-size: 16px;
+    font-size:calc(16px * var(--font-scale));
   }
 
   .status-box {
@@ -1212,7 +1481,7 @@ input {
   }
 
   .status-box .status-title {
-    font-size: 15px;
+    font-size:calc(15px * var(--font-scale));
   }
 
   .completion-actions {
@@ -1250,21 +1519,21 @@ input {
     background: #ffffff;
     margin: 0 0 10px;
     padding: 9px 12px;
-    box-shadow: 0 1px 2px rgba(20, 35, 55, 0.05);
+    box-shadow: 0 1px 2px rgba(26, 8, 10, 0.08);
   }
 
   .items-list-panel .data-table td {
     border: none;
     padding: 3px 0;
     text-align: left;
-    font-size: 13px;
+    font-size:calc(13px * var(--font-scale));
   }
 
   .items-list-panel .data-table td[data-label]::before {
     content: attr(data-label);
     display: inline-block;
     min-width: 74px;
-    font-size: 10px;
+    font-size:calc(10px * var(--font-scale));
     font-weight: 700;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -1274,19 +1543,19 @@ input {
 
   .items-list-panel .data-table td.item-name,
   .items-list-panel .data-table td:first-child {
-    font-size: 15px;
+    font-size:calc(15px * var(--font-scale));
     margin-bottom: 2px;
   }
 
   .items-list-panel .data-table td.col-x {
     padding-top: 8px;
-    border-top: 1px solid #eceff2;
+    border-top: 1px solid #f2ecec;
     margin-top: 6px;
   }
 
   .items-list-panel .data-table td.col-x .delete-btn {
     min-height: 38px;
-    font-size: 12px;
+    font-size:calc(12px * var(--font-scale));
   }
 
   .formula-lines {
@@ -1310,56 +1579,75 @@ input {
   }
 
   .field-label {
-    font-size: 11px;
+    font-size:calc(11px * var(--font-scale));
   }
 
   .items-form .text-input {
     padding: 11px 10px;
-    font-size: 15px;
+    font-size:calc(15px * var(--font-scale));
   }
 
   .formula-builder-row {
     padding: 10px 10px;
-    font-size: 13.5px;
+    font-size:calc(13.5px * var(--font-scale));
   }
 
   .formula-builder-total {
-    font-size: 13px;
+    font-size:calc(13px * var(--font-scale));
     padding: 9px 10px;
   }
 
   .formula-name-chip,
   .formula-line-chip {
-    font-size: 11.5px;
+    font-size:calc(11.5px * var(--font-scale));
     padding: 3px 8px;
     margin: 2px 3px 2px 0;
   }
 
   .formula-summary-name {
-    font-size: 24px;
+    font-size:calc(24px * var(--font-scale));
   }
 
   .screen-sub {
-    font-size: 12px;
+    font-size:calc(12px * var(--font-scale));
   }
 }
 
 @media (max-width: 400px) {
   .brand-name {
-    font-size: 12px;
+    /* See the note above. Still the only line in the brand, so it does not
+       shrink as far as it used to. */
+    font-size:calc(17px * var(--font-scale));
   }
 
   .current-item-name {
-    font-size: 30px;
+    font-size:calc(30px * var(--font-scale));
   }
 
   .scale-reading {
-    font-size: 30px;
+    font-size:calc(30px * var(--font-scale));
     letter-spacing: 1px;
   }
 
   .queue {
-    font-size: 11.5px;
+    font-size:calc(11.5px * var(--font-scale));
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .data-table {
+    font-size:calc(12px * var(--font-scale));
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 6px 5px;
+  }
+
+  .crash-panel {
+    padding: 16px;
   }
 }
 
@@ -1406,17 +1694,17 @@ input {
   border: 1px solid var(--border-strong);
   border-radius: 3px;
   padding: 7px 9px;
-  font-size: 13.5px;
+  font-size:calc(13.5px * var(--font-scale));
   width: 100%;
-  color: #22272e;
+  color: #2e2322;
   background: #ffffff;
 }
 
 .text-input:focus,
 .select-input:focus {
   outline: none;
-  border-color: var(--blue);
-  box-shadow: 0 0 0 2px rgba(47, 94, 163, 0.18);
+  border-color: var(--brand-ink);
+  box-shadow: 0 0 0 2px rgba(211, 47, 47, 0.22);
 }
 
 .table-scroll {
@@ -1428,7 +1716,7 @@ input {
   border: 1px solid var(--border-strong);
   color: #8b94a0;
   border-radius: 3px;
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.05em;
   padding: 4px 8px;
@@ -1455,11 +1743,11 @@ input {
 }
 
 .history-row {
-  border-bottom: 1px solid #e6e9ed;
+  border-bottom: 1px solid #ede6e6;
 }
 
 .history-row.open {
-  background: #f7f8fa;
+  background: #faf7f7;
 }
 
 .history-head {
@@ -1472,22 +1760,22 @@ input {
   background: transparent;
   border: none;
   cursor: pointer;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   color: var(--text);
   text-align: left;
 }
 
 .history-head:hover {
-  background: #f0f3f7;
+  background: #f7f0f0;
 }
 
 .batch-no {
   font-weight: 700;
-  color: var(--blue);
+  color: var(--brand-ink);
 }
 
 .history-date {
-  color: #3d4651;
+  color: #513e3d;
 }
 
 .history-items {
@@ -1508,7 +1796,7 @@ input {
 
 .history-detail {
   padding: 10px 12px;
-  border-top: 1px solid #e6e9ed;
+  border-top: 1px solid #ede6e6;
 }
 
 /* ---------- Reports ---------- */
@@ -1525,21 +1813,21 @@ input {
   border: none;
   border-bottom: 2px solid transparent;
   padding: 8px 14px;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.05em;
-  color: #55606e;
+  color: #6e5655;
   cursor: pointer;
   text-transform: uppercase;
 }
 
 .report-tab:hover {
-  color: var(--blue);
+  color: var(--brand-ink);
 }
 
 .report-tab.active {
-  color: var(--blue);
-  border-bottom-color: var(--blue);
+  color: var(--brand-ink);
+  border-bottom-color: var(--brand-ink);
 }
 
 .report-body {
@@ -1562,7 +1850,7 @@ input {
 }
 
 .stat-label {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
@@ -1571,14 +1859,14 @@ input {
 
 .stat-value {
   font-family: var(--mono);
-  font-size: 26px;
+  font-size:calc(26px * var(--font-scale));
   font-weight: 700;
-  color: #1c2b3d;
+  color: #3d1e1c;
   margin-top: 3px;
 }
 
 .stat-unit {
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   font-weight: 600;
   color: var(--muted);
   margin-left: 4px;
@@ -1597,7 +1885,7 @@ input {
 }
 
 .filter-label {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
@@ -1617,7 +1905,7 @@ input {
   border-top: 2px solid var(--border);
   border-bottom: none;
   font-weight: 700;
-  background: #eef0f3;
+  background: #f3eeee;
 }
 
 /* ---------- Formulas ---------- */
@@ -1639,7 +1927,7 @@ input {
 }
 
 .ing-weight {
-  font-size: 16px;
+  font-size:calc(16px * var(--font-scale));
   padding: 6px 9px;
   width: 100%;
 }
@@ -1656,8 +1944,8 @@ input {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-bottom: 1px solid #e6e9ed;
-  font-size: 12.5px;
+  border-bottom: 1px solid #ede6e6;
+  font-size:calc(12.5px * var(--font-scale));
 }
 
 .formula-builder-row:last-child {
@@ -1679,8 +1967,8 @@ input {
   display: flex;
   justify-content: space-between;
   padding: 7px 8px;
-  background: #eef0f3;
-  font-size: 12px;
+  background: #f3eeee;
+  font-size:calc(12px * var(--font-scale));
   font-weight: 700;
   border-top: 1px solid var(--border);
 }
@@ -1688,11 +1976,11 @@ input {
 .formula-name-chip,
 .formula-line-chip {
   display: inline-block;
-  background: #e9eff7;
-  border: 1px solid #c9d6e6;
-  color: #2f5ea3;
+  background: #f7eae9;
+  border: 1px solid #e6cac9;
+  color: #a3352f;
   border-radius: 3px;
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--font-scale));
   font-weight: 600;
   padding: 3px 8px;
   margin: 2px 4px 2px 0;
@@ -1700,7 +1988,7 @@ input {
 
 .formula-name {
   font-weight: 700;
-  font-size: 15px;
+  font-size:calc(15px * var(--font-scale));
 }
 
 .formula-lines {
@@ -1715,37 +2003,37 @@ input {
 }
 
 .formula-summary-name {
-  font-size: 22px;
+  font-size:calc(22px * var(--font-scale));
   font-weight: 800;
-  color: #1c2b3d;
+  color: #3d1e1c;
 }
 
 .formula-summary-meta {
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--font-scale));
   color: var(--muted);
   font-family: var(--mono);
   margin-top: 2px;
 }
 
 .formula-master-note {
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--font-scale));
   color: var(--muted);
 }
 
 .cart-formula-tag {
-  font-size: 10px;
-  color: var(--blue);
+  font-size:calc(10px * var(--font-scale));
+  color: var(--brand-ink);
   font-weight: 600;
 }
 
 .formula-label {
   display: inline-block;
   margin-top: 6px;
-  background: #e9eff7;
-  border: 1px solid #c9d6e6;
-  color: #2f5ea3;
+  background: #f7eae9;
+  border: 1px solid #e6cac9;
+  color: #a3352f;
   border-radius: 3px;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   font-weight: 700;
   padding: 3px 8px;
 }
@@ -1756,7 +2044,7 @@ input {
 }
 
 .history-detail-formula {
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--font-scale));
   color: var(--text);
   margin-bottom: 8px;
 }
@@ -1765,7 +2053,7 @@ input {
 
 .save-state {
   margin-top: 6px;
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   font-weight: 600;
 }
 
@@ -1780,6 +2068,13 @@ input {
 /* ---------- Print ---------- */
 
 @media print {
+  /* Printed bills and reports always come out at the normal size, whatever the
+     operator has chosen for the screen. Specificity matches the step rules
+     above so source order decides, and this block comes later. */
+  :root[data-font-scale] {
+    --font-scale: 1;
+  }
+
   body {
     background: #ffffff;
   }
@@ -1813,7 +2108,7 @@ input {
 }
 
 .report-actions .btn {
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   padding: 6px 12px;
 }
 
@@ -1821,7 +2116,7 @@ input {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(18, 26, 36, 0.55);
+  background: rgba(26, 8, 10, 0.55);
   display: flex;
   flex-direction: column;
   overflow: auto;
@@ -1850,14 +2145,14 @@ input {
 .print-toolbar-title {
   color: #ffffff;
   font-weight: 700;
-  font-size: 13px;
+  font-size:calc(13px * var(--font-scale));
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .print-toolbar-sub {
-  color: #b9c6d6;
-  font-size: 11.5px;
+  color: #d6bab9;
+  font-size:calc(11.5px * var(--font-scale));
 }
 
 .print-toolbar-actions {
@@ -1866,8 +2161,8 @@ input {
 }
 
 .print-toolbar-actions .btn-primary {
-  background: #3d6db0;
-  border-color: #35609e;
+  background: #b0433d;
+  border-color: #9e3a35;
 }
 
 .print-report {
@@ -1876,7 +2171,7 @@ input {
   margin: 24px auto 64px;
   padding: 34px 40px;
   background: #ffffff;
-  color: #1c232c;
+  color: #2c1d1c;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
 }
 
@@ -1886,7 +2181,7 @@ input {
   align-items: flex-start;
   gap: 16px;
   padding-bottom: 14px;
-  border-bottom: 3px double #24384f;
+  border-bottom: 3px double #4f2624;
   margin-bottom: 18px;
 }
 
@@ -1902,30 +2197,30 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #24384f;
+  background: #4f2624;
   color: #ffffff;
   font-weight: 800;
-  font-size: 17px;
+  font-size:calc(17px * var(--font-scale));
   letter-spacing: 0.03em;
 }
 
 .print-company-name {
-  font-size: 19px;
+  font-size:calc(19px * var(--font-scale));
   font-weight: 800;
   letter-spacing: 0.06em;
-  color: #24384f;
+  color: #c62828;
 }
 
 .print-company-sub {
-  font-size: 11px;
-  color: #5b6a7c;
+  font-size:calc(11px * var(--font-scale));
+  color: #7c5d5b;
   letter-spacing: 0.02em;
 }
 
 .print-docno {
   font-family: var(--mono);
-  font-size: 10.5px;
-  color: #5b6a7c;
+  font-size:calc(10.5px * var(--font-scale));
+  color: #7c5d5b;
   border: 1px solid var(--border);
   padding: 3px 7px;
   border-radius: 2px;
@@ -1941,22 +2236,22 @@ input {
 
 .print-report-title {
   margin: 0;
-  font-size: 22px;
+  font-size:calc(22px * var(--font-scale));
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #24384f;
+  color: #4f2624;
 }
 
 .print-report-sub {
   margin-top: 3px;
-  font-size: 13px;
-  color: #43515f;
+  font-size:calc(13px * var(--font-scale));
+  color: #5f4443;
 }
 
 .print-generated {
-  font-size: 11.5px;
-  color: #5b6a7c;
+  font-size:calc(11.5px * var(--font-scale));
+  color: #7c5d5b;
   text-align: right;
   line-height: 1.6;
 }
@@ -1970,22 +2265,22 @@ input {
 
 .print-summary-box {
   border: 1px solid var(--border);
-  border-top: 3px solid var(--blue);
+  border-top: 3px solid var(--brand);
   padding: 10px 14px;
 }
 
 .print-summary-label {
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #5b6a7c;
+  color: #7c5d5b;
 }
 
 .print-summary-value {
   margin-top: 3px;
   font-family: var(--mono);
   font-weight: 800;
-  font-size: 17px;
+  font-size:calc(17px * var(--font-scale));
 }
 
 .print-section {
@@ -1993,19 +2288,19 @@ input {
 }
 
 .print-section-title {
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--font-scale));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: var(--blue);
-  border-bottom: 2px solid var(--blue);
+  color: var(--brand-ink);
+  border-bottom: 2px solid var(--brand);
   padding-bottom: 5px;
   margin-bottom: 10px;
 }
 
 .print-section-note {
-  font-size: 11.5px;
-  color: #7c8794;
+  font-size:calc(11.5px * var(--font-scale));
+  color: #947d7c;
   font-style: italic;
   padding: 6px 2px;
 }
@@ -2013,32 +2308,32 @@ input {
 .print-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--font-scale));
 }
 
 .print-table th {
-  background: #eef0f3;
-  color: #3d4a58;
-  font-size: 10.5px;
+  background: #f3eeee;
+  color: #583e3d;
+  font-size:calc(10.5px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 7px 9px;
-  border: 1px solid #c9d1da;
+  border: 1px solid #dacac9;
   text-align: left;
 }
 
 .print-table td {
   padding: 7px 9px;
-  border: 1px solid #dde3ea;
+  border: 1px solid #eadedd;
 }
 
 .print-table tbody tr:nth-child(even) td {
-  background: #f7f8fa;
+  background: #faf7f7;
 }
 
 .print-table tfoot td {
   font-weight: 800;
-  background: #e9edf2;
+  background: #f2e9e9;
   border-top: 2px solid var(--border-strong);
 }
 
@@ -2067,20 +2362,20 @@ input {
 .print-signature {
   flex: 1;
   text-align: center;
-  color: #5b6a7c;
-  font-size: 11px;
+  color: #7c5d5b;
+  font-size:calc(11px * var(--font-scale));
 }
 
 .print-signature-line {
-  border-top: 1px solid #5b6a7c;
+  border-top: 1px solid #7c5d5b;
   margin: 28px 4px 6px;
 }
 
 .print-footer-note {
   text-align: center;
-  font-size: 11px;
-  color: #7c8794;
-  border-top: 1px solid #eceff2;
+  font-size:calc(11px * var(--font-scale));
+  color: #947d7c;
+  border-top: 1px solid #f2ecec;
   padding-top: 10px;
 }
 
@@ -2138,7 +2433,7 @@ input {
   .ing-row .select-input {
     grid-column: 1 / -1;
     padding: 11px 10px;
-    font-size: 15px;
+    font-size:calc(15px * var(--font-scale));
   }
 
   .ing-row .input-row {
@@ -2151,6 +2446,165 @@ input {
 
   .items-form-actions .btn {
     width: 100%;
+  }
+}
+
+/* ---------- Scale connection (USB port picker) ---------- */
+
+.scale-conn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+
+.scale-conn-body {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  /* Absorbs the squeeze so the port label truncates instead of forcing the
+     toggle onto a second row. */
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.scale-port-fixed,
+.scale-baud-select {
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  font-size:calc(12px * var(--font-scale));
+  padding: 5px 6px;
+  color: var(--text);
+  max-width: 260px;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.scale-baud-select {
+  max-width: 96px;
+  flex-shrink: 0;
+}
+
+.scale-conn-status {
+  font-size:calc(11px * var(--font-scale));
+  color: #c7a19f;
+  font-family: var(--mono);
+  max-width: 320px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scale-conn-status .err {
+  color: #ff9ba0;
+  font-weight: 700;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: #804d4a;
+  color: #f0d1cf;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: #572c2a;
+}
+
+/* ---------- Live scale readout ---------- */
+
+.metric-device {
+  border-color: #d6b9b7;
+  background: #fbf5f5;
+}
+
+.live-reading {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--mono);
+}
+
+.live-reading-value {
+  font-size:calc(30px * var(--font-scale));
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #4f1512;
+  line-height: 1.1;
+}
+
+.live-reading-value.muted {
+  color: #b49b9a;
+}
+
+.live-stable-badge {
+  align-self: center;
+  margin-left: 4px;
+  font-family: var(--mono);
+  font-size:calc(10px * var(--font-scale));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #1d6b2d;
+  background: #d7eedb;
+  border: 1px solid #8fca95;
+  border-radius: 2px;
+  padding: 2px 5px;
+}
+
+.device-error {
+  margin-top: 8px;
+  font-size:calc(11px * var(--font-scale));
+  line-height: 1.45;
+  color: #8a1f24;
+  background: #fbebeb;
+  border: 1px solid #dc9094;
+  border-radius: 2px;
+  padding: 6px 8px;
+}
+
+.status-device {
+  border-color: #dc9094;
+  background: #fbebeb;
+  color: #a01c20;
+}
+
+.terminal-scale b {
+  font-weight: 700;
+}
+
+.terminal-scale.online b {
+  color: #6fd68c;
+}
+
+.terminal-scale.offline b,
+.terminal-scale.unavailable b,
+.terminal-scale.reconnecting b,
+.terminal-scale.connecting b {
+  color: #f0b95c;
+}
+
+.b-warn {
+  color: #f0b95c !important;
+}
+
+@media (max-width: 900px) {
+  .scale-conn {
+    justify-content: flex-start;
+  }
+
+  .scale-conn-status {
+    max-width: none;
+    width: 100%;
+  }
+
+  .scale-port-fixed {
+    max-width: none;
+    flex: 1 1 180px;
   }
 }
 
@@ -2176,6 +2630,25 @@ input {
 }
 
 @media (max-width: 640px) {
+  /* Stack the bar instead of letting it wrap into a clipped row. The toggle
+     keeps its own line so it is always visible. */
+  .scale-conn {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .scale-conn-body {
+    width: 100%;
+  }
+
+  .scale-port-fixed {
+    flex: 1 1 150px;
+  }
+
+  .scale-conn-status {
+    max-width: 100%;
+  }
+
   .panel-footer {
     flex-direction: column;
     gap: 8px;
@@ -2184,4 +2657,231 @@ input {
   .panel-footer .btn {
     width: 100%;
   }
+}
+/* ---------- Crash screen (AppErrorBoundary) ---------- */
+.crash-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 24px;
+  background: #1c1110;
+  color: #f4e9e8;
+}
+
+.crash-panel {
+  width: 100%;
+  max-width: 560px;
+  padding: 24px;
+  border: 1px solid #7a2626;
+  border-radius: 12px;
+  background: #261817;
+}
+
+.crash-title {
+  font-size:calc(1.25rem * var(--font-scale));
+  font-weight: 700;
+  color: #ff8f8f;
+}
+
+.crash-app {
+  margin: 8px 0 0;
+  color: #d2bab9;
+}
+
+.crash-message {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #22161a;
+  color: #ffd7d7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size:calc(0.85rem * var(--font-scale));
+  overflow-wrap: anywhere;
+}
+
+.crash-stack {
+  max-height: 30vh;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #170e0d;
+  color: #b3918f;
+  font-size:calc(0.72rem * var(--font-scale));
+  line-height: 1.4;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.crash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.crash-actions .btn {
+  flex: 1 1 160px;
+}
+
+.crash-hint {
+  margin: 16px 0 0;
+  color: #b3918f;
+  font-size:calc(0.8rem * var(--font-scale));
+}
+
+@media (max-width: 480px) {
+  .crash-actions .btn {
+    flex: 1 1 100%;
+  }
+}
+
+/* ---------- Measured vs target drift ---------- */
+.drift {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size:calc(0.72rem * var(--font-scale));
+  font-weight: 700;
+}
+
+.drift.over {
+  background: rgba(224, 108, 117, 0.16);
+  color: #ff9a9a;
+}
+
+.drift.under {
+  background: rgba(224, 168, 108, 0.16);
+  color: #ffc98c;
+}
+
+/* ---------- Resumed weighing notice ---------- */
+/* Escape hatch for a line that is at its target but whose scale has never
+   reported the reading as settled. Without it a dithering load cell leaves the
+   line wedged and the only exit is throwing away the whole batch. */
+.btn-next-line {
+  width: 100%;
+  margin-top: 10px;
+  padding: 14px 12px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.resume-banner {
+  background: #fff6e5;
+  border-color: #e0a94f;
+  color: #7a4d05;
+}
+
+.resume-banner .btn {
+  flex: 0 0 auto;
+}
+
+/* ---------- Auto-advance countdown ---------- */
+.status-auto-advance {
+  border-color: #a3352f;
+  background: #faebea;
+  color: #70201c;
+  animation: auto-advance-pulse 1s ease-in-out infinite;
+}
+
+.status-auto-advance .status-title {
+  font-size:calc(19px * var(--font-scale));
+}
+
+@keyframes auto-advance-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.62;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-auto-advance {
+    animation: none;
+  }
+}
+
+/* ---------- Overview month shortcut ---------- */
+/* A month in the LAST 12 MONTHS table opens the monthly tab on that month, so
+   it reads as a link rather than as another cell of plain text. */
+.month-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: #a8231c;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.month-link:hover {
+  color: #741712;
+}
+
+.month-link:focus-visible {
+  outline: 2px solid #a8231c;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ---------- Text size control ---------- */
+.font-size-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: #411e1c;
+  border: 1px solid #703d3a;
+  border-radius: 3px;
+  padding: 2px;
+}
+
+.font-size-btn {
+  background: #4f2624;
+  color: #ffffff;
+  border: 1px solid #703d3a;
+  border-radius: 2px;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 700;
+  line-height: 1;
+  /* A generous target: this is pressed with a thumb, often a gloved one. */
+  min-width: 32px;
+  min-height: 28px;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.font-size-btn:hover:not(:disabled) {
+  background: #a3352f;
+  border-color: #bd706c;
+}
+
+.font-size-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.font-size-btn:focus-visible {
+  outline: 2px solid #bd706c;
+  outline-offset: 1px;
+}
+
+.font-size-value {
+  min-width: 78px;
+  padding: 0 4px;
+  color: #c7a19f;
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
